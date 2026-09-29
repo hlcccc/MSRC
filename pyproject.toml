@@ -32,7 +32,19 @@ dependencies = ["numpy>=1.23"]
 hf = ["torch>=2.1", "transformers>=4.40", "accelerate", "pillow"]
 ocr = ["rapidocr-onnxruntime"]
 service = ["fastapi>=0.110", "uvicorn>=0.27", "pydantic>=2.0"]
-test = ["pytest>=7.0", "fastapi>=0.110", "pydantic>=2.0", "httpx"]
+# The public-benchmark adapters read parquet, and pandas reads parquet only
+# through an engine that it does not install. Listing it here rather than leaving
+# it implicit: an undeclared dependency surfaces as a confusing error from inside
+# pandas, which is how it goes unnoticed until someone tries a clean install.
+datasets = ["pandas>=1.5", "pyarrow>=12.0"]
+test = [
+    "pytest>=7.0",
+    "pandas>=1.5",
+    "pyarrow>=12.0",
+    "fastapi>=0.110",
+    "pydantic>=2.0",
+    "httpx",
+]
 
 [project.scripts]
 msrc = "msrc.cli:main"
