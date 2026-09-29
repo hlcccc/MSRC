@@ -164,6 +164,33 @@ by deployment and jurisdiction, and a hard-coded list would be wrong everywhere
 except the place it was written. Supply your categories through the probe prompt
 and label accordingly.
 
+## Selecting, not just scoring
+
+A risk score answers "how likely is this wrong". A deployment usually needs a
+second decision: **which items do I act on, and which go to a human?** That is a
+selection problem with a guarantee, and split conformal prediction is how to get
+one:
+
+```python
+from msrc import select, selective_report
+
+accepted = select(calibration_null_scores, test_scores, alpha=0.10, procedure="BY")
+report = selective_report(calibration_null_scores, test_scores,
+                          test_labels=labels, alpha=0.10)
+```
+
+The calibration set must hold items known to satisfy the null — correct answers —
+and must be exchangeable with the test items. Nothing in the code can check that;
+the caller owns it. BY is the default because scores from one model on items that
+share an image are not independent.
+
+> **`VALIDATED` is `False`.** The procedure is implemented from the standard
+> definition and unit tested against textbook cases; it has not been checked on
+> this project's data. The flag travels in every report, because a docstring cannot
+> stop a number from being quoted and a field can at least make it visible. The
+> report also keeps `realized_fdp` separate from the guarantee: the guarantee is on
+> the expectation over draws, and the realized value is one draw.
+
 ## Measuring
 
 `evaluation/metrics.py` produces the numbers a result needs, and `summarise()`

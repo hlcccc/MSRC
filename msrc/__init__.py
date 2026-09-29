@@ -15,6 +15,14 @@ own policy taxonomy: "what counts as unsafe" is a policy decision, and a framewo
 that hard-coded an answer to it would be wrong everywhere except one place.
 """
 
+from msrc.conformal import (
+    VALIDATED,
+    benjamini_hochberg,
+    benjamini_yekutieli,
+    conformal_pvalues,
+    select,
+    selective_report,
+)
 from msrc.model import FusionHead, RiskCalibrator, RidgeLogistic
 from msrc.pipeline import DEFAULT_THRESHOLD, MSRCConfig, MSRCPipeline
 from msrc.provider import ModelProvider, PromptSet, StubProvider, gather_evidence
@@ -57,7 +65,13 @@ __all__ = [
     "SignalReport",
     "SignalValue",
     "StubProvider",
+    "VALIDATED",
+    "benjamini_hochberg",
+    "benjamini_yekutieli",
     "build_report",
+    "conformal_pvalues",
     "gather_evidence",
+    "select",
+    "selective_report",
     "__version__",
 ]

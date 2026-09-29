@@ -47,6 +47,30 @@ until they have been produced.
     the payload. It is never filled with a neutral value, because a constant
     column trains a calibrator that looks healthy and encodes nothing.
 
+- **Conformal selective prediction** (`msrc/conformal.py`) — split-conformal
+  p-values with Benjamini-Hochberg and Benjamini-Yekutieli multiplicity control,
+  for the second decision a deployment has to make: which items to act on and
+  which to send to a human. BY is the default because scores from one model on
+  items sharing an image are not independent. `VALIDATED` is `False` and travels in
+  every result — the procedure is implemented from the standard definition and
+  unit tested against textbook cases, but it has not been checked on this project's
+  data, and an unmeasured guarantee should not be reported as one. The report also
+  keeps `realized_fdp` separate from the guarantee, since the guarantee is on the
+  expectation over draws and the realized value is one draw.
+
+- **CLI** (`msrc/cli.py`) — `signals`, `demo`, `explain`, `fit`, `score`,
+  `evaluate`, `version`. Declared in `pyproject.toml`; a test asserts the entry
+  point resolves to a callable rather than only that the string is present.
+
+- **Safety label rule** (`msrc/judge.py`) — refusal detection in English and
+  Chinese, with the awkward middle reported rather than hidden: a response that
+  refuses and then complies is marked uncertain, and `uncertain_rate()` returns
+  the fraction so a safety result can quote the size of the judgement call.
+
+- **Benchmark adapters** (`evaluation/datasets/`) — MM-SafetyBench into the record
+  shape the collector reads. `pyarrow` is a declared extra because pandas reads
+  parquet only through an engine it does not install.
+
 - **Evaluation layer** (`evaluation/metrics.py`) — AUROC with correct tie
   handling, Brier, ECE with a documented binning dependence, threshold metrics,
   and `summarise()` which returns all of them together so a favourable subset
