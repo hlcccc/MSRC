@@ -40,11 +40,25 @@ from msrc.types import SIGNAL_INTERNAL  # noqa: E402
 
 
 def load_jsonl(path: Path) -> list:
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8-sig").splitlines()
-        if line.strip()
-    ]
+    source = path.expanduser()
+    if not source.is_file():
+        raise SystemExit(
+            f"file not found: {path}\n"
+            "  Expected the JSONL written by scripts/collect_evidence.py. "
+            "See docs/evaluation.md."
+        )
+    rows = []
+    for lineno, line in enumerate(source.read_text(encoding="utf-8-sig").splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"{path}:{lineno} is not valid JSON: {exc.msg}") from exc
+    if not rows:
+        raise SystemExit(f"{path} holds no records")
+    return rows
 
 
 def main() -> int:
