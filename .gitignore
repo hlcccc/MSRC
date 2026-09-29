@@ -13,11 +13,17 @@ venv/
 .coverage
 htmlcov/
 
+# The bulk directories below are all anchored to the repository root on
+# purpose. An unanchored `datasets/` also matches `evaluation/datasets/`, which
+# is a source directory: it silently kept the MM-SafetyBench adapter out of
+# every commit while `git status` still reported a clean tree. The same trap
+# would fire on a future `msrc/models/` or `msrc/cache/`.
+
 # Model weights and caches: hundreds of GB, never in git.
-models/
-weights/
-checkpoints/
-cache/
+/models/
+/weights/
+/checkpoints/
+/cache/
 *.safetensors
 *.bin
 *.pt
@@ -30,13 +36,13 @@ cache/
 # Collected evidence and results. Evidence is expensive to produce (it needs a
 # GPU) and is cached as JSONL; results are regenerated from it. Neither belongs
 # in the repository, and the scripts say how to rebuild them.
-evidence/
-results/
-artifacts/
-runs/
-logs/
+/evidence/
+/results/
+/artifacts/
+/runs/
+/logs/
 *.log
-tmp/
+/tmp/
 
 # Local configuration and secrets
 .env
@@ -46,8 +52,8 @@ secrets/
 *.local.yml
 
 # Datasets are downloaded, not vendored.
-data/
-datasets/
+/data/
+/datasets/
 
 # Editor / OS
 .idea/
