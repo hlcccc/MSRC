@@ -119,13 +119,47 @@ class Evidence:
 
     @classmethod
     def from_dict(cls, payload: Dict[str, object]) -> "Evidence":
+        """Rebuild evidence from its serialised form.
+
+        Malformed input is rejected here with a message naming the field, rather
+        than surfacing as an ``AttributeError`` from whichever helper happens to
+        touch it first. Evidence arrives from a file or a request body, so it is
+        input, and input gets validated at the boundary.
+        """
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"evidence must be an object, got {type(payload).__name__}"
+            )
+
         def sample(d: Optional[Dict[str, object]]) -> Sample:
-            d = d or {}
+            if d is None:
+                d = {}
+            if not isinstance(d, dict):
+                raise ValueError(
+                    f"a sample must be an object, got {type(d).__name__}: {d!r}"
+                )
             return Sample(
                 text=str(d.get("text", "")),
                 sequence_confidence=d.get("sequence_confidence"),
                 sequence_entropy=d.get("sequence_entropy"),
                 visual_attention_mass=d.get("visual_attention_mass"),
+            )
+
+        def sample_list(value: object, field: str) -> List[Sample]:
+            if value is None:
+                return []
+            if not isinstance(value, (list, tuple)):
+                raise ValueError(
+                    f"{field!r} must be a list of samples, got "
+                    f"{type(value).__name__}: {value!r}"
+                )
+            return [sample(d) for d in value]
+
+        ocr = payload.get("ocr_texts") or []
+        if isinstance(ocr, str) or not isinstance(ocr, (list, tuple)):
+            raise ValueError(
+                f"'ocr_texts' must be a list of strings, got "
+                f"{type(ocr).__name__}: {ocr!r}"
             )
 
         return cls(
@@ -134,12 +168,12 @@ class Evidence:
             image=str(payload.get("image", "")),
             risk_family=str(payload.get("risk_family", RISK_FACTUAL)),
             primary=sample(payload.get("primary")),
-            views=[sample(d) for d in payload.get("views", [])],
-            resamples=[sample(d) for d in payload.get("resamples", [])],
-            verifications=[sample(d) for d in payload.get("verifications", [])],
-            cross_model=[sample(d) for d in payload.get("cross_model", [])],
-            policy_verdicts=[sample(d) for d in payload.get("policy_verdicts", [])],
-            ocr_texts=[str(t) for t in payload.get("ocr_texts", [])],
+            views=sample_list(payload.get("views"), "views"),
+            resamples=sample_list(payload.get("resamples"), "resamples"),
+            verifications=sample_list(payload.get("verifications"), "verifications"),
+            cross_model=sample_list(payload.get("cross_model"), "cross_model"),
+            policy_verdicts=sample_list(payload.get("policy_verdicts"), "policy_verdicts"),
+            ocr_texts=[str(t) for t in ocr],
         )
 
 
