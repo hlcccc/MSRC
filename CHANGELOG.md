@@ -85,6 +85,12 @@ until they have been produced.
   and `summarise()` which returns all of them together so a favourable subset
   cannot be quoted by accident.
 
+- **`scripts/threshold_analysis.py`** — whether an accuracy shortfall is a badly
+  chosen operating point or a score that cannot separate the classes. Sweeps the
+  threshold on dev and prints the best accuracy any threshold reaches on test as a
+  ceiling, labelled as a ceiling rather than a result. It shares
+  `evaluation/split.py` with `evaluate.py` so the two cannot draw different splits.
+
 - **`examples/run_stub.py`** — the whole chain on a CPU with no model and no
   weights, run twice: once as a text-only platform and once with generation-time
   internals supplied, to show which channels a deployment can actually feed.

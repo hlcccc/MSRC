@@ -111,6 +111,23 @@ The report states, in this order:
    准确率 — a threshold quantity — while the natural thing to quote is AUROC, and
    the two can disagree about whether a bar was cleared.
 
+### 5. If accuracy misses the bar, ask whether any threshold would clear it
+
+```bash
+python scripts/threshold_analysis.py --data evidence.jsonl
+```
+
+Accuracy is quoted at a fixed threshold, which is a choice rather than a property
+of the score. This sweeps the threshold on **dev** — a tuned threshold is a fitted
+parameter, and choosing it on test would report a number nobody can reproduce — and
+prints the best accuracy **any** threshold reaches on test as a ceiling. The
+ceiling is selected using the test labels, so it is not a result; its purpose is to
+keep two different findings apart: "the operating point was badly chosen" and
+"the score cannot separate these classes well enough".
+
+It shares `evaluation.split` with `evaluate.py`, so the follow-up cannot silently
+describe a different split than the report it is following up on.
+
 ## Reporting rules
 
 - **Quote the binning with any ECE.** `n_bins=15, uniform` unless stated.

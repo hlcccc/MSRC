@@ -44,6 +44,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from evaluation.metrics import auroc, brier, ece, format_summary, summarise  # noqa: E402
+from evaluation.split import DEFAULT_DEV_FRACTION, DEFAULT_SEED, grouped_split  # noqa: E402
 from msrc.model import RiskCalibrator  # noqa: E402
 from msrc.signals import ALL_SIGNALS, Evidence, build_report  # noqa: E402
 from msrc.types import RISK_FACTUAL, RISK_SAFETY, SIGNAL_INTERNAL  # noqa: E402
@@ -93,8 +94,8 @@ def main(argv=None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--data", required=True, help="evidence JSONL from collect_evidence.py")
-    parser.add_argument("--dev-fraction", type=float, default=0.5)
-    parser.add_argument("--seed", type=int, default=20260920)
+    parser.add_argument("--dev-fraction", type=float, default=DEFAULT_DEV_FRACTION)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--l2", type=float, default=0.05)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--n-bins", type=int, default=15)
@@ -139,14 +140,13 @@ def main(argv=None) -> int:
 
     # ---- split by group -------------------------------------------------
     # By image, not by row: several items can share an image, and a row-wise split
-    # would put near-duplicates of the training set into the evaluation set.
+    # would put near-duplicates of the training set into the evaluation set. The
+    # drawing lives in evaluation.split so a follow-up analysis cannot describe a
+    # different split than the one reported here.
+    dev_mask, test_mask = grouped_split(
+        groups, dev_fraction=args.dev_fraction, seed=args.seed
+    )
     unique = np.unique(groups)
-    rng = np.random.default_rng(args.seed)
-    rng.shuffle(unique)
-    cut = int(len(unique) * args.dev_fraction)
-    dev_groups, test_groups = set(unique[:cut]), set(unique[cut:])
-    dev_mask = np.array([g in dev_groups for g in groups])
-    test_mask = ~dev_mask
 
     if dev_mask.sum() == 0 or test_mask.sum() == 0:
         raise SystemExit("the split produced an empty side; check the group field")
