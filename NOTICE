@@ -1,0 +1,40 @@
+MSRC — multi-signal risk calibration for multimodal generation
+Copyright (c) 2026 HLC
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components
+----------------------
+
+The runtime dependency of the decision layer:
+
+  NumPy                                        BSD-3-Clause
+
+Optional extras, not installed by the core package:
+
+  PyTorch                                      BSD-3-Clause
+  Transformers / Accelerate / Pillow           Apache-2.0
+  RapidOCR (onnxruntime)                       Apache-2.0
+  FastAPI / Uvicorn / Pydantic                 MIT / BSD-3-Clause / MIT
+
+Model weights and datasets are NOT distributed with this repository
+-------------------------------------------------------------------
+
+This licence covers the code in this repository. It does not extend to any model
+checkpoint or dataset the code can be pointed at, and those carry their own terms:
+
+  LLaVA-1.5 checkpoints    derived from Meta's Llama-2 family; governed by the
+                           Llama 2 Community License (not OSI-approved)
+  Qwen2.5-VL checkpoints   governed by their own model licence
+  TextVQA / OKVQA / VQA-v2 / COCO / CHAIR source images
+                           governed by the terms of each dataset
+
+Users are responsible for confirming those terms before use.
+
+What the signals borrow
+-----------------------
+
+The method is assembled from published work and the provenance is recorded in
+`msrc/signals.py` and the README. Those citations are to papers and techniques,
+not to redistributed code: no source from SelfCheckGPT, Semantic Entropy,
+LLM-Check, SAPLMA or any other project is vendored here.

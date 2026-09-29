@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Model weights and caches: hundreds of GB, never in git.
+models/
+weights/
+checkpoints/
+cache/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.joblib
+*.pkl
+.hf_home/
+
+# Collected evidence and results. Evidence is expensive to produce (it needs a
+# GPU) and is cached as JSONL; results are regenerated from it. Neither belongs
+# in the repository, and the scripts say how to rebuild them.
+evidence/
+results/
+artifacts/
+runs/
+logs/
+*.log
+tmp/
+
+# Local configuration and secrets
+.env
+.env.*
+secrets/
+*.local.yaml
+*.local.yml
+
+# Datasets are downloaded, not vendored.
+data/
+datasets/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

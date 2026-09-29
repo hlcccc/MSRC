@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The documented quick start, on the interpreters the package claims.
+  test:
+    name: py${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Test suite
+        run: python -m pytest -q -rs
+
+      # The whole framework runs on a CPU with no model and no weights. If that
+      # ever stops being true, this step is what notices -- and it is also the
+      # claim a new deployment relies on to evaluate the framework before
+      # committing a GPU to it.
+      - name: End-to-end example without a model
+        run: python examples/run_stub.py
+
+      # The README states the signal inventory. This asserts it against the code
+      # rather than against the prose, so the two cannot drift apart.
+      - name: The declared signal inventory holds
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, ".")
+          from msrc.signals import ALL_SIGNALS
+          from msrc.types import RISK_FACTUAL, RISK_SAFETY
+
+          external = [s.name for s in ALL_SIGNALS if s.kind == "external"]
+          internal = [s.name for s in ALL_SIGNALS if s.kind == "internal"]
+          assert len(external) == 6, external
+          assert len(internal) == 3, internal
+          for family in (RISK_FACTUAL, RISK_SAFETY):
+              applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
+              n_int = sum(1 for s in applied if s.kind == "internal")
+              assert len(applied) == 8, (family, [s.name for s in applied])
+              assert n_int == 3, (family, n_int)
+          print("ok: 6 external + 3 internal; 8 apply per family, 3 of them internal")
+          PY
+
+  # The decision layer must stay importable with NumPy alone: no torch, no
+  # fastapi, no model weights. That is what makes the framework evaluable on a
+  # laptop, so it is checked rather than assumed.
+  numpy-only:
+    name: NumPy-only decision layer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install runtime dependency only
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy
+
+      - name: Decision layer imports and scores without the extras
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, ".")
+          import numpy as np
+          from msrc import MSRCConfig, MSRCPipeline, StubProvider
+          from msrc.model import RiskCalibrator
+
+          rng = np.random.default_rng(0)
+          X = rng.normal(size=(200, 8))
+          y = (X[:, 0] + X[:, 1] > 0).astype(int)
+          cal = RiskCalibrator().fit(X, y)
+          assert cal.predict_proba(X).shape == (200,)
+
+          pipe = MSRCPipeline(provider=StubProvider(), config=MSRCConfig(k=2))
+          pipe.fit_from_signals(X, y, [f"s{i}" for i in range(8)])
+          result = pipe.score("q", "a", "/i.jpg")
+          assert 0.0 <= result.risk_score <= 1.0
+          print("ok: decision layer works with numpy alone")
+          PY
+
+  docs:
+    name: documentation links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Every relative markdown link resolves
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+
+          broken = []
+          for path in (p for p in pathlib.Path(".").rglob("*.md") if ".git" not in p.parts):
+              text = path.read_text(encoding="utf-8")
+              for m in re.finditer(r"\]\(([^)]+)\)", text):
+                  target = m.group(1).split("#")[0]
+                  if not target or target.startswith(("http", "mailto")):
+                      continue
+                  if not (path.parent / target).resolve().exists():
+                      broken.append(f"{path}: {target}")
+          for item in broken:
+              print(f"broken link: {item}")
+          sys.exit(1 if broken else 0)
+          PY

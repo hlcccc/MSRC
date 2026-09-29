@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "msrc"
+version = "0.1.0"
+description = "Multi-signal risk calibration for multimodal generation: factual-hallucination and content-safety risk from internal and external model signals."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "HLC", email = "hlcccc@users.noreply.github.com" }]
+keywords = [
+    "hallucination-detection",
+    "uncertainty-quantification",
+    "calibration",
+    "content-safety",
+    "vision-language-model",
+    "selective-prediction",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+# The model adapters. Kept out of the core install so the decision layer stays
+# NumPy-only and testable on a CPU with no weights.
+hf = ["torch>=2.1", "transformers>=4.40", "accelerate", "pillow"]
+ocr = ["rapidocr-onnxruntime"]
+service = ["fastapi>=0.110", "uvicorn>=0.27", "pydantic>=2.0"]
+test = ["pytest>=7.0", "fastapi>=0.110", "pydantic>=2.0", "httpx"]
+
+[project.scripts]
+msrc = "msrc.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["msrc*", "evaluation*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -rs"
