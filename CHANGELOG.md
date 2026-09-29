@@ -84,6 +84,25 @@ until they have been produced.
   with NumPy alone and a job that checks the declared signal inventory against the
   code rather than against the prose.
 
+### Fixed
+
+- **`evaluation/datasets/` was never in the repository.** The `.gitignore` entry
+  `datasets/` was unanchored, so it matched `evaluation/datasets/` as well as the
+  downloaded-data directory it was written for. The MM-SafetyBench adapter was
+  consequently absent from every commit -- including the one whose message says it
+  adds it -- while `git status` reported a clean tree, and the test that imports the
+  adapter pointed at a module the repository did not contain. The bulk directories
+  are now anchored to the repository root, which closes the same trap for a future
+  `msrc/models/` or `msrc/cache/`.
+
+- **The NumPy-only CI job had never passed**, on any commit, since the first one.
+  It fitted the pipeline on invented signal names and then scored it; the pipeline
+  refuses a signal set that differs from the one it was fitted on -- correctly, but
+  at scoring time rather than at the mistake. The check is now
+  `examples/numpy_only.py`, a file that can be run by hand and is covered by the
+  suite, and `msrc.signals.signal_names_for()` supplies the column list for the
+  documented `fit_from_signals` path instead of leaving each caller to write it out.
+
 ### Notes
 
 - The `safety` family's detection quality depends entirely on the policy taxonomy

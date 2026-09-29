@@ -26,7 +26,13 @@ from msrc.conformal import (
 from msrc.model import FusionHead, RiskCalibrator, RidgeLogistic
 from msrc.pipeline import DEFAULT_THRESHOLD, MSRCConfig, MSRCPipeline
 from msrc.provider import ModelProvider, PromptSet, StubProvider, gather_evidence
-from msrc.signals import ALL_SIGNALS, SIGNAL_NAMES, Evidence, build_report
+from msrc.signals import (
+    ALL_SIGNALS,
+    SIGNAL_NAMES,
+    Evidence,
+    build_report,
+    signal_names_for,
+)
 from msrc.types import (
     RISK_FACTUAL,
     RISK_FAMILIES,
@@ -73,5 +79,6 @@ __all__ = [
     "gather_evidence",
     "select",
     "selective_report",
+    "signal_names_for",
     "__version__",
 ]

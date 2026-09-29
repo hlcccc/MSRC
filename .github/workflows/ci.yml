@@ -100,27 +100,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install numpy
 
+      # A file rather than an inline heredoc, so it can be run by hand and is
+      # covered by the test suite. It was inline until this job was found to have
+      # failed on every commit since the first: it fitted the pipeline on invented
+      # signal names and then scored it, which the pipeline refuses -- correctly,
+      # but at scoring time, a long way from the mistake.
       - name: Decision layer imports and scores without the extras
-        run: |
-          python - <<'PY'
-          import sys
-          sys.path.insert(0, ".")
-          import numpy as np
-          from msrc import MSRCConfig, MSRCPipeline, StubProvider
-          from msrc.model import RiskCalibrator
-
-          rng = np.random.default_rng(0)
-          X = rng.normal(size=(200, 8))
-          y = (X[:, 0] + X[:, 1] > 0).astype(int)
-          cal = RiskCalibrator().fit(X, y)
-          assert cal.predict_proba(X).shape == (200,)
-
-          pipe = MSRCPipeline(provider=StubProvider(), config=MSRCConfig(k=2))
-          pipe.fit_from_signals(X, y, [f"s{i}" for i in range(8)])
-          result = pipe.score("q", "a", "/i.jpg")
-          assert 0.0 <= result.risk_score <= 1.0
-          print("ok: decision layer works with numpy alone")
-          PY
+        run: python examples/numpy_only.py
 
   docs:
     name: documentation links

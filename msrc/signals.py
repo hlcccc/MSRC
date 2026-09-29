@@ -50,6 +50,7 @@ __all__ = [
     "agreement",
     "cluster_entropy",
     "SIGNAL_NAMES",
+    "signal_names_for",
 ]
 
 # ---------------------------------------------------------------------------
@@ -600,6 +601,19 @@ ALL_SIGNALS: List[Signal] = [
 ]
 
 SIGNAL_NAMES = [s.name for s in ALL_SIGNALS]
+
+
+def signal_names_for(family: str) -> List[str]:
+    """The signals a report carries for ``family``, in report order.
+
+    This is the column order :meth:`msrc.pipeline.MSRCPipeline.fit_from_signals`
+    must be handed, and getting it wrong is a quiet failure rather than a loud
+    one: score the same pipeline with a different set and it raises, but fit on
+    invented names and the mismatch only shows up at scoring time. The evaluation
+    harness reads the names out of its evidence file; anything fitting from a
+    matrix it built itself should ask here instead of writing the list out.
+    """
+    return [s.name for s in ALL_SIGNALS if s.applies_to(family)]
 
 
 def build_report(ev: Evidence, signals: Optional[Sequence[Signal]] = None) -> SignalReport:
