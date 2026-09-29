@@ -213,7 +213,9 @@ class HFLLaVAProvider:
 
         confidence, entropy = self._from_scores(output, gen_ids, torch)
         attention = (
-            self._visual_attention_mass(output, inputs, prompt_len, torch)
+            self._visual_attention_mass(
+                output, inputs, prompt_len, getattr(self._model, "config", None)
+            )
             if self.want_attention
             else None
         )
@@ -273,51 +275,63 @@ class HFLLaVAProvider:
 
     @staticmethod
     def _visual_attention_mass(
-        output: Any, inputs: Any, prompt_len: int, torch: Any
+        output: Any, inputs: Any, prompt_len: int, model_config: Any
     ) -> Optional[float]:
         """Fraction of the last layer's attention that lands on image tokens.
 
         LLaVA expands a single ``<image>`` placeholder into many patch tokens, so
-        the image span is not one position. Their ids are found from the
-        tokenizer's image token id and the prompt layout, which is the same
-        bookkeeping the processor did when it spliced the patches in.
+        the image span is not one position. ``input_ids`` still holds only the
+        placeholder -- the patches are spliced in inside the model -- so the
+        placeholder's index gives the start of the span and the number of patches
+        is read off the key dimension of the first step rather than hard-coded,
+        which keeps this correct for a different vision tower.
 
         Averages over generated steps in the last layer, then over heads. It is a
         coarse number by construction -- attention is not a saliency map and this
         does not pretend it is -- but "did the answer look at the picture at all"
         is a question a coarse number can answer.
+
+        ``model_config`` is the *model's* config, not the output's: the generation
+        output carries no config, and reading one off it is how this returned
+        ``None`` for every item of a full 800-item run while the attention
+        matrices were sitting in the output the whole time.
         """
         attentions = getattr(output, "attentions", None)
         if not attentions:
             return None
-        image_token_id = getattr(getattr(output, "config", None), "image_token_index", None)
-        ids = inputs["input_ids"][0]
+        image_token_id = getattr(model_config, "image_token_index", None)
         if image_token_id is None:
             return None
+        ids = inputs["input_ids"][0]
         positions = (ids == int(image_token_id)).nonzero(as_tuple=True)[0]
         if len(positions) == 0:
             return None
 
-        # LLaVA-1.5 keeps the placeholder and expands it inside the model, so the
-        # patch span is not visible in input_ids. Fall back to treating the
-        # placeholder neighbourhood as the image region, which is where the
-        # expanded patches live.
-        start = int(positions.min()) - prompt_len
-        span = max(int(len(positions)), 1)
+        placeholder = int(positions.min())
+        # Key positions at the first step: the unexpanded prompt, with the single
+        # placeholder replaced by `patches` image tokens. Anything else in the
+        # difference means the layout is not the one this function assumes.
+        first_key_len = int(attentions[0][-1][0].shape[2])
+        patches = first_key_len - (prompt_len - 1)
+        if patches <= 0:
+            return None
+        lo = placeholder
+        hi = min(placeholder + patches, first_key_len)
+        if hi <= lo:
+            return None
 
         masses: List[float] = []
         for step_attention in attentions:
             layer = step_attention[-1][0]  # last layer, batch 0, [heads, q, k]
             step = layer.shape[1] - 1  # the query that produced the newest token
             row = layer[:, step, :].mean(dim=0)
-            lo = max(start, 0)
-            hi = min(start + span, row.shape[0])
-            if hi <= lo:
+            span = row[lo:min(hi, row.shape[0])]
+            if span.numel() == 0:
                 continue
             total = float(row.sum())
             if total <= 0:
                 continue
-            masses.append(float(row[lo:hi].sum()) / total)
+            masses.append(float(span.sum()) / total)
         if not masses:
             return None
         return sum(masses) / len(masses)
