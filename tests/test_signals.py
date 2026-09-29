@@ -95,8 +95,10 @@ def test_only_one_signal_needs_a_second_model():
         ocr_texts=["Flickr"],
     )
     live = build_report(with_internals)
-    assert len(live.available()) == 6, [s.name for s in live.available()]
+    # Four external that need no second model, plus the three internal: seven.
+    assert len(live.available()) == 7, [s.name for s in live.available()]
     assert live.missing() == ["cross_model_agreement"]
+    assert sum(1 for s in live.available() if s.kind == SIGNAL_INTERNAL) == 3
 
 
 def test_signal_names_are_unique_and_populated():
