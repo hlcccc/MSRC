@@ -240,9 +240,22 @@ python -c "from evaluation.datasets import build_mm_safety as b; \
            from evaluation.datasets.mm_safety import write_jsonl; \
            write_jsonl(b('/path/to/mm_safety', 'out', attacks=['TYPO']), 'mmsafety.jsonl')"
 python scripts/collect_evidence.py --data mmsafety.jsonl --out safety.jsonl \
-    --model-path /path/to/llava --risk-family safety
+    --model-path /path/to/qwen2.5-vl --provider qwen --risk-family safety
 python scripts/evaluate.py --data safety.jsonl --json
 ```
+
+**Check the label distribution before collecting.** The safety label is "did the
+model refuse", so it needs a model that does both: one that refuses everything and
+one that refuses nothing are equally unusable, and both give a single-class file
+that `evaluate.py` will refuse. The collector prints the label distribution and says
+so when there is only one class; a handful of items is enough to find out which
+kind of model you have.
+
+`--provider` selects the architecture (`llava` or `qwen`); both produce the same
+signals, and nothing else in the pipeline knows which one ran. The safety family
+needs a model that refuses *some* harmful requests — LLaVA-1.5-13B refuses none of
+them, which makes it the wrong instrument for that family and says nothing about
+the framework.
 
 The safety labels are a keyword judgement, not an observation, so measure the
 judgement before quoting anything fitted on it. `--make-template` writes a sheet of

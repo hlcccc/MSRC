@@ -132,10 +132,18 @@ def build_provider(args):
     constructor, neither of them was tested at all, and the safety label rule was
     missing from the loop without anything noticing.
     """
-    from msrc.providers import HFLLaVAProvider, HFOCRProvider
+    from msrc.providers import HFLLaVAProvider, HFOCRProvider, HFQwenVLProvider
+
+    providers = {"llava": HFLLaVAProvider, "qwen": HFQwenVLProvider}
+    if args.provider not in providers:
+        raise SystemExit(
+            f"unknown --provider {args.provider!r}; choose from "
+            f"{sorted(providers)}. Both load a HuggingFace checkpoint through "
+            "transformers and produce the same signals."
+        )
 
     ocr_provider = None if args.no_ocr else HFOCRProvider()
-    return HFLLaVAProvider(
+    return providers[args.provider](
         model_path=args.model_path,
         ocr_provider=ocr_provider,
         max_new_tokens=args.max_new_tokens,
@@ -151,6 +159,12 @@ def main() -> int:
     parser.add_argument("--data", required=True, help="input JSONL with labels")
     parser.add_argument("--out", required=True, help="output JSONL with evidence")
     parser.add_argument("--model-path", required=True, help="HF checkpoint directory")
+    parser.add_argument(
+        "--provider",
+        default="llava",
+        choices=("llava", "qwen"),
+        help="which model family the checkpoint is; both produce the same signals",
+    )
     parser.add_argument("--k", type=int, default=3, help="resamples per item")
     parser.add_argument("--limit", type=int, default=0, help="stop after N items (0 = all)")
     parser.add_argument("--risk-family", default=RISK_FACTUAL)

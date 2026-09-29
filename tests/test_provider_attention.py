@@ -23,7 +23,7 @@ torch = pytest.importorskip("torch")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from msrc.providers.hf_llava import HFLLaVAProvider  # noqa: E402
+from msrc.providers.hf_vision import HFLLaVAProvider  # noqa: E402
 
 MASS = HFLLaVAProvider._visual_attention_mass
 
@@ -31,8 +31,22 @@ IMAGE_TOKEN_ID = 32000
 
 
 class _Config:
-    def __init__(self, image_token_index=IMAGE_TOKEN_ID):
-        self.image_token_index = image_token_index
+    """A model config, for the lookup that resolves the image token id.
+
+    The extraction itself takes the id rather than the config -- that separation is
+    what made the original bug testable -- so tests about the span pass a plain int.
+    """
+
+    def __init__(self, **fields):
+        for name, value in fields.items():
+            setattr(self, name, value)
+
+
+class _Model:
+    """Just enough of a loaded model for the config lookup."""
+
+    def __init__(self, config):
+        self.config = config
 
 
 class _Output:
@@ -81,7 +95,7 @@ def test_the_image_span_is_found_and_its_mass_measured():
                                  image_span=patches, placeholder=placeholder))
 
     mass = MASS(output, _inputs(_prompt_with_placeholder(placeholder, prompt_len)),
-                prompt_len, _Config())
+                prompt_len, IMAGE_TOKEN_ID)
     assert mass == pytest.approx(1.0)
 
 
@@ -94,7 +108,7 @@ def test_the_answer_does_not_depend_on_the_output_carrying_a_config():
                                  image_span=patches, placeholder=placeholder))
     assert not hasattr(output, "config")
     assert MASS(output, _inputs(_prompt_with_placeholder(placeholder, prompt_len)),
-                prompt_len, _Config()) is not None
+                prompt_len, IMAGE_TOKEN_ID) is not None
 
 
 def test_a_prompt_longer_than_the_placeholder_does_not_blank_the_reading():
@@ -110,7 +124,7 @@ def test_a_prompt_longer_than_the_placeholder_does_not_blank_the_reading():
     output = _Output(_attentions(3, 1, 2, 1, prompt_len - 1 + patches,
                                  image_span=patches, placeholder=placeholder))
     assert MASS(output, _inputs(_prompt_with_placeholder(placeholder, prompt_len)),
-                prompt_len, _Config()) == pytest.approx(1.0)
+                prompt_len, IMAGE_TOKEN_ID) == pytest.approx(1.0)
 
 
 def test_attention_on_text_only_gives_zero():
@@ -121,7 +135,7 @@ def test_attention_on_text_only_gives_zero():
     layer[:, :, :, 0] = 1.0  # all mass on the first text token
     output = _Output(tuple((layer,) for _ in range(2)))
     mass = MASS(output, _inputs(_prompt_with_placeholder(3, prompt_len)),
-                prompt_len, _Config())
+                prompt_len, IMAGE_TOKEN_ID)
     assert mass == pytest.approx(0.0)
 
 
@@ -129,22 +143,20 @@ def test_no_attentions_returns_none():
     prompt_len = 12
     output = _Output(None)
     assert MASS(output, _inputs(_prompt_with_placeholder(3, prompt_len)),
-                prompt_len, _Config()) is None
+                prompt_len, IMAGE_TOKEN_ID) is None
     assert MASS(_Output(()), _inputs(_prompt_with_placeholder(3, prompt_len)),
-                prompt_len, _Config()) is None
+                prompt_len, IMAGE_TOKEN_ID) is None
 
 
-def test_a_config_without_an_image_token_index_returns_none():
+def test_a_missing_image_token_id_returns_none():
     """A text-only checkpoint has no image span to measure."""
     output = _Output(_attentions(1, 1, 2, 1, 590, image_span=576, placeholder=5))
-    assert MASS(output, _inputs(_prompt_with_placeholder(5, 18)), 18,
-                _Config(image_token_index=None)) is None
     assert MASS(output, _inputs(_prompt_with_placeholder(5, 18)), 18, None) is None
 
 
 def test_a_prompt_without_the_placeholder_returns_none():
     output = _Output(_attentions(1, 1, 2, 1, 590, image_span=576, placeholder=5))
-    assert MASS(output, _inputs([7] * 18), 18, _Config()) is None
+    assert MASS(output, _inputs([7] * 18), 18, IMAGE_TOKEN_ID) is None
 
 
 def test_a_span_that_does_not_fit_the_layout_returns_none():
@@ -157,10 +169,67 @@ def test_a_span_that_does_not_fit_the_layout_returns_none():
     layout = _inputs(_prompt_with_placeholder(5, 18))
 
     zero_patches = _Output(_attentions(1, 1, 2, 1, 17, image_span=1, placeholder=5))
-    assert MASS(zero_patches, layout, 18, _Config()) is None
+    assert MASS(zero_patches, layout, 18, IMAGE_TOKEN_ID) is None
 
     # One key more is a single "patch", which the function accepts: it cannot tell
     # a 1-patch layout from a real one, and refusing every small image would be
     # worse than measuring what is there.
     one_patch = _Output(_attentions(1, 1, 2, 1, 18, image_span=1, placeholder=5))
-    assert MASS(one_patch, layout, 18, _Config()) == pytest.approx(1.0)
+    assert MASS(one_patch, layout, 18, IMAGE_TOKEN_ID) == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# The pre-expanded layout, which is what Qwen2.5-VL produces
+# ---------------------------------------------------------------------------
+
+def _pre_expanded_prompt(n_text, first, patches, token=IMAGE_TOKEN_ID):
+    """A prompt with one placeholder per patch already spliced into input_ids."""
+    ids = [7] * first + [token] * patches + [7] * n_text
+    return ids
+
+
+def test_the_pre_expanded_layout_needs_no_patch_arithmetic():
+    """Qwen2.5-VL puts every patch in input_ids, so the span is the run itself.
+
+    Under the single-placeholder branch this layout computes a patch count of
+    `keys - (prompt_len - 1)` = 1, and would report the mass on one token instead
+    of on the whole image.
+    """
+    patches = 576
+    first = 4
+    ids = _pre_expanded_prompt(6, first, patches)
+    prompt_len = len(ids)  # no expansion happens inside the model
+    output = _Output(_attentions(3, 2, 3, 1, prompt_len,
+                                 image_span=patches, placeholder=first))
+
+    mass = MASS(output, _inputs(ids), prompt_len, IMAGE_TOKEN_ID)
+    assert mass == pytest.approx(1.0)
+
+
+def test_a_partly_attended_image_is_measured_not_rounded():
+    patches = 100
+    first = 2
+    ids = _pre_expanded_prompt(5, first, patches)
+    prompt_len = len(ids)
+
+    layer = torch.zeros(1, 2, 1, prompt_len)
+    layer[:, :, :, first:first + patches] = 0.5 / patches   # half on the image
+    layer[:, :, :, 0] = 0.5                                  # half on a text token
+    output = _Output(tuple((layer,) for _ in range(2)))
+
+    assert MASS(output, _inputs(ids), prompt_len, IMAGE_TOKEN_ID) == pytest.approx(0.5)
+
+
+def test_the_config_lookup_tries_both_field_names():
+    """The two architectures name the field differently."""
+    provider = HFLLaVAProvider(model_path="/nowhere")
+
+    provider._model = _Model(_Config(image_token_index=32000))
+    assert provider.image_token_id() == 32000
+
+    provider._model = _Model(_Config(image_token_id=151655))
+    assert provider.image_token_id() == 151655
+
+    provider._model = _Model(_Config())
+    assert provider.image_token_id() is None
+

@@ -1,4 +1,4 @@
-"""HuggingFace LLaVA adapter: the three internal signals, and where they come from.
+"""HuggingFace vision-language adapters: the three internal signals, and where they come from.
 
 This is the only place in the framework that touches a model's internals, so it is
 worth being explicit about what each one is and what it costs.
@@ -21,6 +21,11 @@ for one number.
 ``sequence_confidence`` and ``output_entropy`` come back as ``None`` and the two
 signals report themselves unavailable, rather than being handed a placeholder that
 would turn them into constant columns. The same applies to attention.
+
+Two architectures are wired up, because the safety family needs a model that
+sometimes refuses and not every model does. Nothing in the framework depends on
+which one is used: the signals are readings of a response, and the count of them
+that run is the same seven either way.
 """
 
 from __future__ import annotations
@@ -33,7 +38,12 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from msrc.types import Sample
 
-__all__ = ["HFLLaVAProvider", "HFOCRProvider"]
+__all__ = [
+    "HFLLaVAProvider",
+    "HFQwenVLProvider",
+    "HFVisionLanguageProvider",
+    "HFOCRProvider",
+]
 
 IMAGE_TOKEN = "<image>"
 
@@ -75,8 +85,13 @@ class HFOCRProvider:
         return texts
 
 
-class HFLLaVAProvider:
-    """LLaVA-1.5 (or any HF LlavaForConditionalGeneration checkpoint).
+class HFVisionLanguageProvider:
+    """Shared implementation for HuggingFace vision-language checkpoints.
+
+    Subclasses set ``model_class_name`` and ``image_token_fields``; everything else
+    -- loading, the generation call, the two distribution readings and the
+    attention span -- is architecture-independent, or is written to handle the two
+    image-token layouts that the architectures in use here actually produce.
 
     Parameters
     ----------
@@ -91,7 +106,14 @@ class HFLLaVAProvider:
         most expensive reading here and the only one that needs a config change.
     """
 
-    provider_kind = "llava"
+    provider_kind = "hf-vlm"
+
+    #: Resolved against the ``transformers`` module in :meth:`load`.
+    model_class_name = ""
+
+    #: Config attributes that hold the image placeholder's token id, tried in
+    #: order. The architectures name it differently and neither name is universal.
+    image_token_fields: Sequence[str] = ("image_token_index", "image_token_id")
 
     def __init__(
         self,
@@ -126,6 +148,15 @@ class HFLLaVAProvider:
         self._warned_no_attention = False
 
     # -- loading --------------------------------------------------------
+    def image_token_id(self) -> Optional[int]:
+        """The placeholder's id, from whichever config field this model uses."""
+        config = getattr(self._model, "config", None)
+        for field in self.image_token_fields:
+            value = getattr(config, field, None)
+            if value is not None:
+                return int(value)
+        return None
+
     def load(self) -> None:
         if self._model is not None:
             return
@@ -144,12 +175,20 @@ class HFLLaVAProvider:
             )
         try:
             import torch
-            from transformers import AutoProcessor, LlavaForConditionalGeneration
+            import transformers
+            from transformers import AutoProcessor
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise ImportError(
                 "the HuggingFace provider needs the model extra:\n"
                 '  pip install -e ".[hf]"'
             ) from exc
+
+        model_class = getattr(transformers, self.model_class_name, None)
+        if model_class is None:
+            raise ImportError(
+                f"this transformers build has no {self.model_class_name}. "
+                f"Upgrade it, or use a provider whose class it does have."
+            )
 
         self._torch = torch
         self._processor = AutoProcessor.from_pretrained(self.model_path)
@@ -166,9 +205,7 @@ class HFLLaVAProvider:
             # it. Eager attention is slower, and it is the only implementation that
             # hands the matrices back.
             load_kwargs["attn_implementation"] = "eager"
-        self._model = LlavaForConditionalGeneration.from_pretrained(
-            self.model_path, **load_kwargs
-        )
+        self._model = model_class.from_pretrained(self.model_path, **load_kwargs)
         self._model.eval()
         if self.seed is not None:
             # Seeded once, here. Seeding before every generation would make the K
@@ -214,7 +251,7 @@ class HFLLaVAProvider:
         confidence, entropy = self._from_scores(output, gen_ids, torch)
         attention = (
             self._visual_attention_mass(
-                output, inputs, prompt_len, getattr(self._model, "config", None)
+                output, inputs, prompt_len, self.image_token_id()
             )
             if self.want_attention
             else None
@@ -275,31 +312,34 @@ class HFLLaVAProvider:
 
     @staticmethod
     def _visual_attention_mass(
-        output: Any, inputs: Any, prompt_len: int, model_config: Any
+        output: Any, inputs: Any, prompt_len: int, image_token_id: Optional[int]
     ) -> Optional[float]:
         """Fraction of the last layer's attention that lands on image tokens.
-
-        LLaVA expands a single ``<image>`` placeholder into many patch tokens, so
-        the image span is not one position. ``input_ids`` still holds only the
-        placeholder -- the patches are spliced in inside the model -- so the
-        placeholder's index gives the start of the span and the number of patches
-        is read off the key dimension of the first step rather than hard-coded,
-        which keeps this correct for a different vision tower.
 
         Averages over generated steps in the last layer, then over heads. It is a
         coarse number by construction -- attention is not a saliency map and this
         does not pretend it is -- but "did the answer look at the picture at all"
         is a question a coarse number can answer.
 
-        ``model_config`` is the *model's* config, not the output's: the generation
-        output carries no config, and reading one off it is how this returned
-        ``None`` for every item of a full 800-item run while the attention
+        Two image-token layouts have to be handled, because the architectures in
+        use here differ and the difference is invisible from the outside:
+
+        * **Pre-expanded** (Qwen2.5-VL) -- the processor splices one placeholder per
+          patch into ``input_ids``, so the image span is exactly the run of
+          placeholders and no arithmetic is needed.
+        * **Single placeholder** (LLaVA) -- ``input_ids`` holds one ``<image>`` and
+          the model expands it internally, so the span starts at the placeholder
+          and the number of patches is what the key dimension gained over the
+          unexpanded prompt.
+
+        ``image_token_id`` is looked up on the *model's* config by the caller: the
+        generation output carries no config, and reading one off it is how this
+        returned ``None`` for every item of a full 800-item run while the attention
         matrices were sitting in the output the whole time.
         """
         attentions = getattr(output, "attentions", None)
         if not attentions:
             return None
-        image_token_id = getattr(model_config, "image_token_index", None)
         if image_token_id is None:
             return None
         ids = inputs["input_ids"][0]
@@ -307,16 +347,17 @@ class HFLLaVAProvider:
         if len(positions) == 0:
             return None
 
-        placeholder = int(positions.min())
-        # Key positions at the first step: the unexpanded prompt, with the single
-        # placeholder replaced by `patches` image tokens. Anything else in the
-        # difference means the layout is not the one this function assumes.
         first_key_len = int(attentions[0][-1][0].shape[2])
-        patches = first_key_len - (prompt_len - 1)
-        if patches <= 0:
-            return None
-        lo = placeholder
-        hi = min(placeholder + patches, first_key_len)
+        if len(positions) > 1:
+            lo = int(positions.min())
+            hi = int(positions.max()) + 1
+        else:
+            patches = first_key_len - (prompt_len - 1)
+            if patches <= 0:
+                return None
+            lo = int(positions.min())
+            hi = lo + patches
+        hi = min(hi, first_key_len)
         if hi <= lo:
             return None
 
@@ -340,4 +381,31 @@ class HFLLaVAProvider:
     def ocr(self, image: str) -> List[str]:
         if self.ocr_provider is None:
             return []
-        return list(self.ocr_provider.ocr(image))
+        return self.ocr_provider.ocr(image)
+
+
+class HFLLaVAProvider(HFVisionLanguageProvider):
+    """LLaVA-1.5 (or any HF ``LlavaForConditionalGeneration`` checkpoint)."""
+
+    provider_kind = "llava"
+    model_class_name = "LlavaForConditionalGeneration"
+
+
+class HFQwenVLProvider(HFVisionLanguageProvider):
+    """Qwen2.5-VL, which refuses some harmful requests where LLaVA refuses none.
+
+    The safety family's label is "did the model refuse", so it needs a model that
+    does both. A model that refuses everything and a model that refuses nothing are
+    equally unusable there, and this is not a claim about which is better -- it is
+    the reason the label distribution has to be checked before a set is collected.
+
+    Defaults to ``bfloat16``, which is the precision this checkpoint was trained in;
+    ``float16`` produces degenerate generations on some inputs.
+    """
+
+    provider_kind = "qwen-vl"
+    model_class_name = "Qwen2_5_VLForConditionalGeneration"
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        kwargs.setdefault("dtype", "bfloat16")
+        super().__init__(*args, **kwargs)

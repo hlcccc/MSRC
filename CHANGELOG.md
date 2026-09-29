@@ -71,6 +71,14 @@ until they have been produced.
   shape the collector reads. `pyarrow` is a declared extra because pandas reads
   parquet only through an engine it does not install.
 
+- **Two model backends** (`msrc/providers/hf_vision.py`) — `HFLLaVAProvider` and
+  `HFQwenVLProvider` over one shared implementation, selected with `--provider`.
+  Both produce the same signals; the second exists because the safety family's label
+  is "did the model refuse", which needs a model that does both, and LLaVA-1.5-13B
+  refuses none of MM-SafetyBench's TYPO set. The shared implementation handles both
+  image-token layouts (one placeholder expanded inside the model, or one per patch
+  spliced in by the processor).
+
 - **Evaluation layer** (`evaluation/metrics.py`) — AUROC with correct tie
   handling, Brier, ECE with a documented binning dependence, threshold metrics,
   and `summarise()` which returns all of them together so a favourable subset

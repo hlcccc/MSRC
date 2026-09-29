@@ -71,6 +71,13 @@ python scripts/collect_evidence.py \
 generates the answer, records the token logprobs, entropy and attention **of that
 generation**, and labels it by the standard VQA agreement rule.
 
+`--provider` names the architecture (`llava` or `qwen`). It changes nothing about
+the signals — the same seven run either way — and it exists because the safety
+family's label needs a model that refuses some harmful requests and complies with
+others. Check that before collecting a set: the collector prints the label
+distribution, and a single-class file is refused by `evaluate.py` because there is
+nothing in it to rank.
+
 If the answers already exist — a published run, a production log — pass them as
 `answer` with a `label` instead. That is a legitimate use, and the three internal
 signals will report themselves unavailable, because the logprobs of *that*

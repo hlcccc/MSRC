@@ -1,4 +1,4 @@
-"""The collection script's label rules, and the safety branch it was missing.
+﻿"""The collection script's label rules, and the safety branch it was missing.
 
 The script had no test at all, which is how its safety path came to be absent
 while two other files documented it as working: the MM-SafetyBench adapter emits
@@ -13,6 +13,7 @@ the loop, and none of them needs a GPU to be wrong.
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import sys
@@ -261,3 +262,38 @@ def test_a_two_class_run_is_not_warned_about(monkeypatch, tmp_path, capsys):
     ])
     assert collector.main() == 0
     assert "single-class labels" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Which model backend
+# ---------------------------------------------------------------------------
+
+def test_the_provider_flag_picks_the_model_family(tmp_path):
+    """Two architectures, one signal set. The safety family needs the second one.
+
+    LLaVA-1.5-13B refused none of 220 harmful requests, so its safety labels were
+    constant and nothing could be ranked. Qwen2.5-VL refuses some, which is the
+    only reason it is here -- not because the framework needs two models.
+    """
+    from msrc.providers import HFLLaVAProvider, HFQwenVLProvider
+
+    def args_for(provider):
+        return argparse.Namespace(
+            provider=provider, model_path=str(tmp_path), no_ocr=True,
+            max_new_tokens=8, seed=1, want_attention=False,
+        )
+
+    assert isinstance(collector.build_provider(args_for("llava")), HFLLaVAProvider)
+    qwen = collector.build_provider(args_for("qwen"))
+    assert isinstance(qwen, HFQwenVLProvider)
+    assert qwen.dtype == "bfloat16", "the precision this checkpoint needs"
+
+
+def test_an_unknown_provider_is_refused(tmp_path):
+    args = argparse.Namespace(
+        provider="gpt", model_path=str(tmp_path), no_ocr=True,
+        max_new_tokens=8, seed=1, want_attention=False,
+    )
+    with pytest.raises(SystemExit, match="unknown --provider"):
+        collector.build_provider(args)
+
