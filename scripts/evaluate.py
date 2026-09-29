@@ -17,8 +17,18 @@ What it reports
    different questions and the task book's wording ("准确率") is a threshold
    quantity while the natural thing to quote is AUROC.
 
-It also prints what the score is *not*: this is a factual-hallucination label on a
-captioning benchmark, not a content-safety judgement.
+Which numbers those are depends on the risk family, and both are reported the same
+way:
+
+* ``factual`` -- the label is "the answer contradicts the image", from the VQA
+  agreement rule. The score is a hallucination warning.
+* ``safety`` -- the label is "the model did not refuse", from :mod:`msrc.judge`.
+  The score is an unsafe-response warning, and the report carries the rate at which
+  the refusal rule was unsure of itself, because that rate bounds how much of the
+  label is a judgement rather than an observation.
+
+The family is read from the evidence rather than passed in, so a report cannot
+describe the wrong one.
 """
 
 from __future__ import annotations
@@ -36,7 +46,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from evaluation.metrics import auroc, brier, ece, format_summary, summarise  # noqa: E402
 from msrc.model import RiskCalibrator  # noqa: E402
 from msrc.signals import ALL_SIGNALS, Evidence, build_report  # noqa: E402
-from msrc.types import SIGNAL_INTERNAL  # noqa: E402
+from msrc.types import RISK_FACTUAL, RISK_SAFETY, SIGNAL_INTERNAL  # noqa: E402
+
+#: The last section of the report. What the number is, and what it is not -- the
+#: second half matters more, because a calibrated risk score is easy to over-read.
+FAMILY_PROSE = {
+    RISK_FACTUAL: {
+        "title": "指标 2.3  高风险预警",
+        "is": "事实性风险（回答与图像矛盾）的排序与校准质量",
+        "is_not": "内容安全（政治敏感 / 违规）判定 —— 那需要另一套标签和政策口径",
+        "label_rule": "标签：回答与参考回答不一致（VQA 一致度 < 0.5 记为风险）",
+    },
+    RISK_SAFETY: {
+        "title": "指标 2.3  高风险预警（不安全响应）",
+        "is": "不安全响应的排序与校准质量：模型没有拒绝有害请求",
+        "is_not": "对模型整体安全能力的评价 —— 这只覆盖所测类别与提示方式",
+        "label_rule": "标签：msrc.judge 关键词拒绝判定（未拒绝记为风险）",
+    },
+}
 
 
 def load_jsonl(path: Path) -> list:
@@ -61,7 +88,7 @@ def load_jsonl(path: Path) -> list:
     return rows
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -72,7 +99,7 @@ def main() -> int:
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--n-bins", type=int, default=15)
     parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     rows = load_jsonl(Path(args.data).expanduser())
     rows = [r for r in rows if r.get("evidence")]
@@ -82,13 +109,30 @@ def main() -> int:
     # ---- signal matrix -------------------------------------------------
     names: list = []
     matrix, labels, groups = [], [], []
+    families = Counter()
     for row in rows:
         report = build_report(Evidence.from_dict(row["evidence"]))
+        families[str(row["evidence"].get("risk_family", RISK_FACTUAL))] += 1
         if not names:
             names = report.names()
         matrix.append(report.vector())
         labels.append(int(row["label"]))
         groups.append(str(row.get("image", row.get("id", ""))))
+
+    # The family decides what the labels mean, so a mixed file cannot be reported
+    # as either. Refusing is the only honest option: the two label rules disagree
+    # about what 1 means.
+    if len(families) > 1:
+        raise SystemExit(
+            f"the evidence mixes risk families: {dict(families)}\n"
+            "  A factual label and a safety label are not the same quantity. "
+            "Evaluate them separately."
+        )
+    family = next(iter(families))
+    if family not in FAMILY_PROSE:
+        raise SystemExit(f"unknown risk family in the evidence: {family!r}")
+    prose = FAMILY_PROSE[family]
+
     X = np.asarray(matrix, dtype=float)
     y = np.asarray(labels, dtype=int)
     groups = np.asarray(groups)
@@ -112,10 +156,34 @@ def main() -> int:
     print("=" * 84)
     print("MSRC evaluation")
     print("=" * 84)
+    print(f"  risk family      : {family}")
+    print(f"  {prose['label_rule']}")
     print(f"  items            : {len(rows)}  over {len(unique)} groups (images)")
     print(f"  dev / test       : {int(dev_mask.sum())} / {int(test_mask.sum())}")
     print(f"  positive rate    : dev {y[dev_mask].mean():.3%}   test {y[test_mask].mean():.3%}")
     print()
+
+    # For the safety family the label is a keyword judgement, not an observation.
+    # How often that judgement was unsure is part of the result, so it is printed
+    # before any number computed from it.
+    label_uncertain_rate = None
+    if family == RISK_SAFETY:
+        verdicts = [r.get("refusal") for r in rows if isinstance(r.get("refusal"), dict)]
+        if verdicts:
+            unsure = sum(1 for v in verdicts if not v.get("certain", True))
+            empty = sum(1 for v in verdicts if v.get("empty_response"))
+            label_uncertain_rate = unsure / len(verdicts)
+            print(f"  标签可靠性       : 拒绝判定不确定 {unsure}/{len(verdicts)} "
+                  f"({label_uncertain_rate:.1%})")
+            if empty:
+                print(f"                     其中空回答 {empty} 条（记为未拒绝）")
+            print("                     这个比例是标签本身的不确定度，"
+                  "下方的数都建立在其之上")
+            print()
+        else:
+            print("  标签可靠性       : 记录里没有 refusal 判定，"
+                  "无法报告标签不确定度（旧格式？）")
+            print()
 
     # ---- which signals actually ran -------------------------------------
     print("  signals:")
@@ -189,7 +257,7 @@ def main() -> int:
     print()
 
     print("=" * 84)
-    print("指标 2.3  高风险预警")
+    print(prose["title"])
     print("=" * 84)
     print(format_summary(summarise(y_test, scores, threshold=args.threshold, n_bins=args.n_bins)))
     rank = auroc(y_test, scores)
@@ -205,12 +273,15 @@ def main() -> int:
     print("=" * 84)
     print("这个数是什么，不是什么")
     print("=" * 84)
-    print("  是  : 事实性风险（回答与图像矛盾）的排序与校准质量")
-    print("  不是: 内容安全（政治敏感 / 违规）判定 —— 那需要另一套标签和政策口径")
+    print(f"  是  : {prose['is']}")
+    print(f"  不是: {prose['is_not']}")
     print()
 
     if args.json:
         print(json.dumps({
+            "risk_family": family,
+            "label_rule": prose["label_rule"],
+            "label_uncertain_rate": label_uncertain_rate,
             "n_items": len(rows), "n_groups": int(len(unique)),
             "n_dev": int(dev_mask.sum()), "n_test": int(test_mask.sum()),
             "signals_defined": len(names), "signals_live": n_live,

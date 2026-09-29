@@ -76,9 +76,24 @@ class PromptSet:
 
 
 class ModelProvider(Protocol):
-    """What a deployment must supply. Deliberately small."""
+    """What a deployment must supply. Deliberately small.
+
+    ``generate`` and ``ocr`` are the whole requirement. Two more members are used
+    by the collection script when present and skipped when not, so a minimal
+    provider is still a valid one:
+
+    * ``load()`` -- called once before the first generation, if defined. A provider
+      that lazily loads on first use can leave it out.
+    * ``want_attention`` / ``attention_calls`` -- reporting only, and meaningless
+      for a provider that does not expose attention.
+
+    ``calls`` is expected to count generations, because the collector prints it
+    beside the count the framework derived for itself; the two disagreeing is how
+    a provider that silently retries gets noticed.
+    """
 
     name: str
+    calls: int
 
     def generate(self, image: str, prompt: str, do_sample: bool = False) -> Sample:
         """One generation. ``Sample`` may carry internals or leave them ``None``."""
@@ -193,10 +208,20 @@ class StubProvider:
     name = "stub"
     provider_kind = "stub"
 
+    #: Reporting only, but declared so the stub satisfies the same surface the
+    #: collection script expects of a real provider. Its whole purpose is to let
+    #: the framework be exercised without weights; if the collector needed a
+    #: branch to cope with it, that branch would be the untested part.
+    want_attention = False
+    attention_calls = 0
+
     def __init__(self, answers: Sequence[str] = ("Flickr",), ocr_text: str = "Flickr"):
         self.answers = list(answers)
         self.ocr_text = ocr_text
         self.calls = 0
+
+    def load(self) -> None:
+        """Nothing to load. Present because the collector calls it when defined."""
 
     # -- helpers --------------------------------------------------------
     @staticmethod

@@ -241,6 +241,19 @@ python -c "from evaluation.datasets import build_mm_safety as b; \
            write_jsonl(b('/path/to/mm_safety', 'out', attacks=['TYPO']), 'mmsafety.jsonl')"
 python scripts/collect_evidence.py --data mmsafety.jsonl --out safety.jsonl \
     --model-path /path/to/llava --risk-family safety
+python scripts/evaluate.py --data safety.jsonl --json
+```
+
+The safety labels are a keyword judgement, not an observation, so measure the
+judgement before quoting anything fitted on it. `--make-template` writes a sheet of
+responses with the human column blank; fill it in and the check reports the
+agreement, Cohen's kappa and every disagreement with its text:
+
+```bash
+python scripts/check_safety_labels.py --make-template safety.jsonl \
+    --out to_label.jsonl --sample 100
+# read each response, set "human_refused" to true or false
+python scripts/check_safety_labels.py --data to_label.jsonl --min-agreement 0.9
 ```
 
 The report states which signals ran, the ECE gain with its binning, AUROC and the

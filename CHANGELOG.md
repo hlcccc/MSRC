@@ -86,6 +86,33 @@ until they have been produced.
 
 ### Fixed
 
+- **The safety family could not be run end to end.** The MM-SafetyBench adapter
+  emits records with no accepted answers, by design — there is nothing to compare a
+  response against, only a harmful request — and the collector had no branch that
+  would label such a record. It demanded an answer or accepted answers and exited,
+  so the two other files that documented the safety workflow described something
+  that did not work. The collector now labels safety items by refusal after
+  generating them, stores the verdict beside the label so the judgement can be
+  audited, and reports the rate at which the rule was unsure of itself.
+
+- **`scripts/check_safety_labels.py` did not exist**, though `msrc.judge` named it
+  as the way to measure the disagreement rate that module's own docstring says must
+  accompany a safety result. It now does: a labelling sheet can be generated, and
+  checking one reports agreement, Cohen's kappa, the confusion counts and every
+  disagreement with its response text.
+
+- **`evaluate.py` described every result as a factual one.** Pointed at safety
+  evidence it printed a closing paragraph stating that the number was not a safety
+  judgement. The family now comes from the evidence, the indicator heading and
+  caveats follow it, and a file that mixes two families is refused rather than
+  averaged: 1 does not mean the same kind of thing in the two cases.
+
+- **`ModelProvider` did not describe what the collector calls.** It declares
+  `generate` and `ocr`, but the collector also called `load()` and read
+  `want_attention`; a provider written against the documented protocol would have
+  failed. `load` is now documented as optional and skipped when absent, and
+  `calls` is declared as the counter it already relied on.
+
 - **`evaluation/datasets/` was never in the repository.** The `.gitignore` entry
   `datasets/` was unanchored, so it matched `evaluation/datasets/` as well as the
   downloaded-data directory it was written for. The MM-SafetyBench adapter was
