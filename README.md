@@ -80,9 +80,37 @@ python -m pytest -q
 The decision layer is NumPy-only. The model adapters live behind extras:
 
 ```bash
-pip install -e ".[hf,ocr]"     # torch + transformers + rapidocr
-pip install -e ".[service]"    # the HTTP service
+pip install -e ".[hf,ocr]"       # torch + transformers + rapidocr
+pip install -e ".[datasets]"     # pandas + pyarrow, for the benchmark adapters
+pip install -e ".[service]"      # the HTTP service
 ```
+
+> `pyarrow` is listed rather than assumed. pandas reads parquet only through an
+> engine it does not install, and without one the failure surfaces deep inside
+> pandas as a message about pyarrow that never mentions what was being done.
+
+## Commands
+
+```bash
+msrc signals                     # what the signal layer defines, and what runs
+msrc signals --family safety     # the same, for the other risk family
+msrc demo                        # the whole chain on a CPU, no model
+msrc explain  --data evidence.jsonl
+msrc fit      --data evidence.jsonl --out scorer.json
+msrc score    --scorer scorer.json --evidence one.json
+msrc evaluate --data evidence.jsonl
+```
+
+`msrc signals` reports the honest count — nine defined, eight applicable, **seven
+that run with a single model** — and names the one that needs a second.
+
+`msrc explain` is the first thing to run on real data: it says which signals
+carry information and which came out constant, because "nine signals are defined"
+and "six ran on this data" are different claims and only the second is a result.
+
+`msrc score` refuses a scorer with no fitted coefficients. Returning an
+uncalibrated prior as though it were a calibrated probability is how a caller ends
+up trusting a number that means nothing.
 
 ## Run it without a model
 
@@ -138,22 +166,24 @@ and label accordingly.
 
 ## Measuring
 
-`evaluation/metrics.py` produces the three numbers a result needs, and
-`summarise()` returns all of them together so a favourable subset cannot be
-quoted by accident:
+`evaluation/metrics.py` produces the numbers a result needs, and `summarise()`
+returns all of them together so a favourable subset cannot be quoted by accident:
 
 ```python
 from evaluation.metrics import format_summary, summarise
 print(format_summary(summarise(labels, scores)))
 ```
 
+The output has this shape — **these are placeholder values showing the format, not
+a result from this project**:
+
 ```
-  items            : 1999   positive rate 41.821%
-  AUROC            : 0.8495
-  Brier            : 0.1552
-  ECE              : 0.0333   (n_bins=15)
-  threshold 0.50   : acc 0.7724  prec 0.7298  rec 0.7237  F1 0.7267
-  ECE across binnings: 0.0291 .. 0.0402   <- quote the setting with the value
+  items            : <n>   positive rate <p>
+  AUROC            : 0.????        <- can it rank a risky item above a safe one
+  Brier            : 0.????        <- proper score; the one ECE cannot replace
+  ECE              : 0.????   (n_bins=15)
+  threshold 0.50   : acc 0.????  prec 0.????  rec 0.????  F1 0.????
+  ECE across binnings: 0.???? .. 0.????   <- quote the setting with the value
 ```
 
 > **ECE is gameable, and the summaries say so.** A predictor that outputs the base
@@ -161,6 +191,35 @@ print(format_summary(summarise(labels, scores)))
 > whether the stated probability matches the observed frequency; it says nothing
 > about whether the classes are separated. Never quote an ECE gain without Brier or
 > AUROC beside it.
+
+## Results
+
+**No results are claimed in this repository yet.** The framework, the signal layer,
+the calibration and the evaluation are complete and tested; the evaluation on
+public benchmarks has not been published here, and a number that has not been
+produced should not appear in a table.
+
+[docs/evaluation.md](docs/evaluation.md) is the protocol, and the two commands that
+produce a result are:
+
+```bash
+# factual: TextVQA, or any VQA set with accepted answers
+python scripts/collect_evidence.py --data textvqa.jsonl --out evidence.jsonl \
+    --model-path /path/to/llava --k 3 --want-attention
+python scripts/evaluate.py --data evidence.jsonl --json
+
+# safety: MM-SafetyBench, labelled by refusal after generating
+python -c "from evaluation.datasets import build_mm_safety as b; \
+           from evaluation.datasets.mm_safety import write_jsonl; \
+           write_jsonl(b('/path/to/mm_safety', 'out', attacks=['TYPO']), 'mmsafety.jsonl')"
+python scripts/collect_evidence.py --data mmsafety.jsonl --out safety.jsonl \
+    --model-path /path/to/llava --risk-family safety
+```
+
+The report states which signals ran, the ECE gain with its binning, AUROC and the
+threshold metrics, and — for the safety family — the rate at which the label rule
+was not confident, because a refusal classifier's uncertain cases are a real part
+of the error floor and not a detail.
 
 ## Licence
 

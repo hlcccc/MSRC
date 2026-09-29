@@ -34,6 +34,16 @@ jobs:
       - name: Test suite
         run: python -m pytest -q -rs
 
+      # The console script is declared in pyproject.toml. A fresh install must
+      # produce a working command -- that is the claim this step exists to check,
+      # and it is the one that silently failed in a sibling project.
+      - name: The declared console script works
+        run: |
+          msrc version
+          msrc signals
+          msrc signals --second-model
+          msrc signals --family safety
+
       # The whole framework runs on a CPU with no model and no weights. If that
       # ever stops being true, this step is what notices -- and it is also the
       # claim a new deployment relies on to evaluate the framework before
