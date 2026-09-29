@@ -68,8 +68,9 @@ until they have been produced.
   the fraction so a safety result can quote the size of the judgement call.
 
 - **Benchmark adapters** (`evaluation/datasets/`) — MM-SafetyBench into the record
-  shape the collector reads. `pyarrow` is a declared extra because pandas reads
-  parquet only through an engine it does not install.
+  shape the collector reads, plus `stratified_sample` for a category-balanced set.
+  `pyarrow` is a declared extra because pandas reads parquet only through an engine
+  it does not install.
 
 - **Two model backends** (`msrc/providers/hf_vision.py`) — `HFLLaVAProvider` and
   `HFQwenVLProvider` over one shared implementation, selected with `--provider`.

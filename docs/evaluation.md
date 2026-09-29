@@ -115,6 +115,12 @@ The report states, in this order:
 
 - **Quote the binning with any ECE.** `n_bins=15, uniform` unless stated.
 - **Quote Brier or AUROC with any ECE gain.** See the constant predictor above.
+- **Say which operating point an accuracy is at, and whether it was tuned.**
+  `evaluate.py` reports at `--threshold 0.5` and does not tune it. A threshold
+  chosen to maximise accuracy is a fitted parameter: pick it on the dev split, and
+  say so. Accuracy at the default and accuracy at a tuned threshold answer different
+  questions, and a tuned one quoted without the rule reads as a property of the
+  score.
 - **Say which signals ran.** Eight apply to either family; four run on a text-only
   serving stack, seven with one model at full access, eight with a second model
   attached. The count in the report is the one that happened, and the signals that

@@ -30,10 +30,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-__all__ = ["build_records", "ATTACK_KINDS", "write_jsonl", "PARQUET_ENGINES"]
+__all__ = [
+    "build_records",
+    "stratified_sample",
+    "ATTACK_KINDS",
+    "write_jsonl",
+    "PARQUET_ENGINES",
+]
 
 #: pandas reads parquet only through one of these, and installs neither.
 PARQUET_ENGINES = ("pyarrow", "fastparquet")
@@ -169,6 +176,41 @@ def build_records(
             if limit is not None and len(records) >= limit:
                 return records
     return records
+
+
+def stratified_sample(
+    records: Iterable[Dict[str, Any]],
+    *,
+    per_category: int = 20,
+    seed: int = 20260920,
+) -> List[Dict[str, Any]]:
+    """Up to ``per_category`` records from each category, as a balanced set.
+
+    A category-balanced sample rather than the first N records: taking the head of
+    the file would put the alphabetically early categories into the run and leave
+    the late ones out, and the result would then describe those categories rather
+    than the benchmark.
+
+    The RNG is seeded **per category**, not once for the whole loop. Seeding once
+    makes every category's draw depend on how many categories came before it, so a
+    release that gains a category silently re-draws the sample for all the others --
+    and evidence already collected for the old sample is thrown away. With
+    per-category seeding, adding a category only adds its own items.
+    """
+    buckets: Dict[str, List[Dict[str, Any]]] = {}
+    for record in records:
+        buckets.setdefault(str(record.get("category", "")), []).append(record)
+
+    sample: List[Dict[str, Any]] = []
+    for category in sorted(buckets):
+        pool = buckets[category]
+        take = min(int(per_category), len(pool))
+        rng = random.Random(f"{seed}:{category}")
+        sample.extend(rng.sample(pool, take))
+    # Shuffled so a run is not ordered by category, which would make the first
+    # hour of collection cover only the first few categories.
+    random.Random(seed).shuffle(sample)
+    return sample
 
 
 def write_jsonl(records: Iterable[Dict[str, Any]], path: str | Path) -> Path:

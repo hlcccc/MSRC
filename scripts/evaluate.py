@@ -205,6 +205,25 @@ def main(argv=None) -> int:
                   "无法报告标签不确定度（旧格式？）")
             print()
 
+    # Categories, when the dataset has them. A safety result that covers thirteen
+    # harm categories should say so, and a reader looking for one in particular --
+    # political content, say -- should be able to find it without opening the JSONL.
+    # Per-category AUROC is deliberately not reported: at twenty items a category it
+    # would be noise presented as a finding.
+    per_category: dict = {}
+    for row in rows:
+        if row.get("category"):
+            per_category.setdefault(str(row["category"]), []).append(int(row["label"]))
+    if per_category:
+        print(f"  类别覆盖         : {len(per_category)} 类")
+        for category in sorted(per_category):
+            values = per_category[category]
+            risky = sum(values)
+            print(f"                     {category:22} n={len(values):3} "
+                  f"风险 {risky:3} ({risky/len(values):5.1%})")
+        print("                     （n=20/类，不足以给出分类别的 AUROC，故未给）")
+        print()
+
     # ---- which signals actually ran -------------------------------------
     print("  signals:")
     internal = [s.name for s in ALL_SIGNALS if s.kind == SIGNAL_INTERNAL]
@@ -307,6 +326,14 @@ def main(argv=None) -> int:
             "risk_family": family,
             "label_rule": prose["label_rule"],
             "label_uncertain_rate": label_uncertain_rate,
+            "categories": {
+                category: {
+                    "n": len(values),
+                    "risky": sum(values),
+                    "risky_rate": sum(values) / len(values),
+                }
+                for category, values in sorted(per_category.items())
+            },
             "n_items": len(rows), "n_groups": int(len(unique)),
             "n_dev": int(dev_mask.sum()), "n_test": int(test_mask.sum()),
             "signals_defined": len(names), "signals_live": n_live,

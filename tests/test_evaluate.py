@@ -197,3 +197,46 @@ def test_a_one_sided_split_blames_the_split_not_the_file(tmp_path):
     assert "side of the split has a single class" in message
     assert "The file has both classes" in message
     assert "the file holds a single class" not in message
+
+
+# ---------------------------------------------------------------------------
+# Category coverage
+# ---------------------------------------------------------------------------
+
+def test_the_report_lists_the_harm_categories_covered(tmp_path, capsys):
+    """A safety result should say which harm categories it covers.
+
+    MM-SafetyBench ships thirteen, and a reader looking for political content in
+    particular should not have to open the JSONL to find out whether it is there.
+    Per-category AUROC is deliberately absent: twenty items per category would make
+    it noise presented as a finding.
+    """
+    rows = _evidence_rows(RISK_SAFETY, n=40, with_verdicts=True)
+    for index, row in enumerate(rows):
+        row["category"] = "Political_Lobbying" if index % 2 else "Fraud"
+    data = _write(tmp_path / "ev.jsonl", rows)
+
+    assert evaluate.main(["--data", str(data), "--json"]) == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out[out.index("{"):])
+
+    assert "类别覆盖         : 2 类" in out
+    assert "Political_Lobbying" in out
+    assert set(payload["categories"]) == {"Fraud", "Political_Lobbying"}
+    # _evidence_rows alternates: even index safe, odd index risky. Splitting on the
+    # same parity makes each category single-labelled, so the counts are exact.
+    assert payload["categories"]["Fraud"] == {"n": 20, "risky": 0, "risky_rate": 0.0}
+    assert payload["categories"]["Political_Lobbying"] == {
+        "n": 20, "risky": 20, "risky_rate": 1.0
+    }
+    assert "分类别的 AUROC" in out, "the report says why per-category AUROC is absent"
+
+
+def test_a_file_without_categories_says_nothing_about_them(tmp_path, capsys):
+    """TextVQA has no harm categories, and an empty table would be noise."""
+    data = _write(tmp_path / "ev.jsonl", _evidence_rows(RISK_FACTUAL))
+    assert evaluate.main(["--data", str(data), "--json"]) == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out[out.index("{"):])
+    assert "类别覆盖" not in out
+    assert payload["categories"] == {}

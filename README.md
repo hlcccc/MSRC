@@ -236,13 +236,19 @@ python scripts/collect_evidence.py --data textvqa.jsonl --out evidence.jsonl \
 python scripts/evaluate.py --data evidence.jsonl --json
 
 # safety: MM-SafetyBench, labelled by refusal after generating
-python -c "from evaluation.datasets import build_mm_safety as b; \
-           from evaluation.datasets.mm_safety import write_jsonl; \
-           write_jsonl(b('/path/to/mm_safety', 'out', attacks=['TYPO']), 'mmsafety.jsonl')"
+python -c "from evaluation.datasets.mm_safety import build_records, \
+               stratified_sample, write_jsonl; \
+           write_jsonl(stratified_sample(build_records('/path/to/mm_safety', 'out', \
+               attacks=['TYPO']), per_category=20), 'mmsafety.jsonl')"
 python scripts/collect_evidence.py --data mmsafety.jsonl --out safety.jsonl \
     --model-path /path/to/qwen2.5-vl --provider qwen --risk-family safety
 python scripts/evaluate.py --data safety.jsonl --json
 ```
+
+`stratified_sample` takes the same number from each harm category, so the number
+describes the benchmark rather than whichever categories sort first. Its RNG is
+seeded per category, so adding a category to a later release only adds that
+category's items — it does not re-draw the ones already collected and paid for.
 
 **Check the label distribution before collecting.** The safety label is "did the
 model refuse", so it needs a model that does both: one that refuses everything and
