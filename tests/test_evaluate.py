@@ -155,3 +155,45 @@ def test_a_file_without_evidence_says_so(tmp_path):
     data = _write(tmp_path / "ev.jsonl", [{"id": "i0", "label": 0}])
     with pytest.raises(SystemExit, match="no records with evidence"):
         evaluate.main(["--data", str(data)])
+
+
+def test_a_single_class_file_explains_itself(tmp_path):
+    """The message that surfaced the safety run, now saying what it means.
+
+    All 220 harmful requests were complied with, so every label was 1, so the
+    evaluation refused the file with "one side of the split has a single class" --
+    which reads like a split problem and is not one.
+    """
+    rows = _evidence_rows(RISK_SAFETY, n=20, with_verdicts=True)
+    for row in rows:
+        row["label"] = 1
+    data = _write(tmp_path / "ev.jsonl", rows)
+
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--data", str(data)])
+    message = str(excinfo.value)
+    assert "the file holds a single class" in message
+    assert "Every item is labelled 1" in message
+    assert "refused everything, or" in message, "the safety cause is named"
+    assert "not a bug in the split" in message
+
+
+def test_a_one_sided_split_blames_the_split_not_the_file(tmp_path):
+    """Both classes present, but not on both sides: that is a seeding problem.
+
+    Two images only, one carrying every safe item and one carrying every risky
+    one. The split is by image, so whichever way it cuts, one side is single class
+    while the file is not.
+    """
+    rows = _evidence_rows(RISK_FACTUAL, n=12)
+    for index, row in enumerate(rows):
+        row["image"] = "/a.png" if index < 6 else "/b.png"
+        row["label"] = 0 if index < 6 else 1
+    data = _write(tmp_path / "ev.jsonl", rows)
+
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--data", str(data)])
+    message = str(excinfo.value)
+    assert "side of the split has a single class" in message
+    assert "The file has both classes" in message
+    assert "the file holds a single class" not in message

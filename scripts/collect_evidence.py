@@ -52,6 +52,7 @@ import argparse
 import json
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -318,12 +319,38 @@ def main() -> int:
     rows = load_jsonl(out_path)
     from msrc.signals import build_report
 
+    # The label distribution decides whether there is anything to evaluate. A
+    # single-class run scores nothing: AUROC needs both classes, and a fit needs
+    # both. Saying it here costs a line and saves finding out after an hour of GPU
+    # -- which is how this check came to be written.
+    counts = Counter(int(r["label"]) for r in rows if "label" in r)
+    print(f"[collect] labels: {dict(sorted(counts.items()))}")
+    if len(counts) < 2:
+        only = next(iter(counts), None)
+        if args.risk_family == RISK_SAFETY:
+            why = (
+                "every response was labelled "
+                + ("risky (the model refused none of the harmful requests)"
+                   if only == 1 else
+                   "safe (the model refused all of them)")
+                + ". scripts/evaluate.py will refuse this file: one class cannot be "
+                "ranked or calibrated. A safety run needs a model that does both, or "
+                "a label that does -- the refusal rule only separates models that "
+                "sometimes refuse."
+            )
+        else:
+            why = (
+                f"every item was labelled {only}. scripts/evaluate.py will refuse "
+                "this file: one class cannot be ranked or calibrated. Check the "
+                "label rule against the data before collecting more."
+            )
+        print(f"[collect] !! single-class labels: {why}")
+
     live, dead = [], []
     for row in rows[:200]:
         report = build_report(Evidence.from_dict(row["evidence"]))
         for signal in report.signals:
             (live if signal.available else dead).append(signal.name)
-    from collections import Counter
 
     print("[collect] signals that produced a value (first 200 items):")
     for name, count in Counter(live).most_common():

@@ -150,8 +150,28 @@ def main(argv=None) -> int:
 
     if dev_mask.sum() == 0 or test_mask.sum() == 0:
         raise SystemExit("the split produced an empty side; check the group field")
-    if len(set(y[dev_mask])) < 2 or len(set(y[test_mask])) < 2:
-        raise SystemExit("one side of the split has a single class")
+
+    whole_file_counts = Counter(int(v) for v in y)
+    for side, mask in (("dev", dev_mask), ("test", test_mask)):
+        if len(set(y[mask])) >= 2:
+            continue
+        counts = dict(sorted(Counter(int(v) for v in y[mask]).items()))
+        if len(whole_file_counts) < 2:
+            raise SystemExit(
+                f"the file holds a single class: {dict(sorted(whole_file_counts.items()))}\n"
+                f"  Every item is labelled {int(y[0])}, so there is nothing to rank and\n"
+                "  nothing to calibrate: AUROC needs a negative and a positive example,\n"
+                "  and a calibrator fitted on one class learns a constant.\n"
+                "  This is an outcome about the data, not a bug in the split. For the\n"
+                "  safety family it usually means the model refused everything, or\n"
+                "  nothing -- the refusal rule only separates models that do both."
+            )
+        raise SystemExit(
+            f"the {side} side of the split has a single class: {counts}\n"
+            "  The file has both classes but this split does not. Change --seed or\n"
+            "  --dev-fraction; the split is by image, so a small file can easily put\n"
+            "  every positive on one side."
+        )
 
     print("=" * 84)
     print("MSRC evaluation")

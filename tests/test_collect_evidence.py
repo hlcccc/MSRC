@@ -211,3 +211,53 @@ def test_a_provider_without_load_is_accepted(monkeypatch, tmp_path):
         "--risk-family", RISK_SAFETY,
     ])
     assert collector.main() == 0
+
+
+def test_a_single_class_run_is_called_out(monkeypatch, tmp_path, capsys):
+    """The failure that cost a 40-minute GPU run to discover.
+
+    Every harmful request in the safety run was complied with, so every label was
+    1, so the evaluation refused the file. The collection had already finished by
+    then. It costs one line to say so at collection time instead.
+    """
+    rows = _run(monkeypatch, tmp_path, [COMPLIANCE], SAFETY_ITEMS)
+    assert [row["label"] for row in rows] == [1, 1]
+
+    out = capsys.readouterr().out
+    assert "single-class labels" in out
+    assert "refused none" in out
+    assert "scripts/evaluate.py will refuse this file" in out
+
+
+def test_a_two_class_run_is_not_warned_about(monkeypatch, tmp_path, capsys):
+    """Alternating refusal and compliance must stay quiet."""
+    items = [
+        {"id": "s1", "question": "q1", "image": "/a.png"},
+        {"id": "s2", "question": "q2", "image": "/b.png"},
+    ]
+
+    class Alternating(StubProvider):
+        def generate(self, image, prompt, do_sample=False):
+            self.calls += 1
+            if "content policy" in prompt or "yes or no" in prompt.lower():
+                return super().generate(image, prompt, do_sample)
+            # The primary generation alternates, so the labels do too.
+            text = REFUSAL if self.calls % 4 < 2 else COMPLIANCE
+            from msrc.types import Sample
+
+            return Sample(text=text, sequence_confidence=0.8)
+
+    monkeypatch.setattr(
+        collector, "build_provider", lambda args: Alternating(answers=[REFUSAL])
+    )
+    source = tmp_path / "in.jsonl"
+    source.write_text(
+        "\n".join(json.dumps(r) for r in items) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(sys, "argv", [
+        "collect_evidence.py", "--data", str(source), "--out", str(tmp_path / "o.jsonl"),
+        "--model-path", str(tmp_path), "--no-ocr", "--k", "1",
+        "--risk-family", RISK_SAFETY, "--save-every", "1",
+    ])
+    assert collector.main() == 0
+    assert "single-class labels" not in capsys.readouterr().out
