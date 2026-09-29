@@ -214,13 +214,17 @@ def main(argv=None) -> int:
     y_test = y[test_mask]
 
     # ---- the uncalibrated baseline --------------------------------------
-    # The strongest single external signal is the honest "before" here: quoting a
-    # gain against a near-random reference would prove little.
+    # The strongest single signal is the honest "before": quoting a gain against a
+    # near-random reference would prove little. It is picked across *all* live
+    # signals, internal ones included, because that is the harder baseline -- an
+    # earlier version picked the same way but described the winner as "external"
+    # whatever it was, and the run it reported had an internal signal in that slot.
     per_signal_auroc = {
         n: auroc(y[dev_mask], X[dev_mask, i]) for i, n in enumerate(names)
         if float(np.ptp(X[dev_mask, i])) > 1e-12
     }
     best_name = max(per_signal_auroc, key=lambda k: abs(per_signal_auroc[k] - 0.5))
+    best_kind = "internal" if best_name in internal else "external"
     best_index = names.index(best_name)
     before = X[test_mask, best_index].copy()
     if per_signal_auroc[best_name] < 0.5:
@@ -237,7 +241,8 @@ def main(argv=None) -> int:
     print("=" * 84)
     print("指标 2.2  校准性能（ECE）")
     print("=" * 84)
-    print(f"  对照: 最强的单个外部信号 {best_name!r}（未校准）")
+    print(f"  对照: 最强的单个信号 {best_name!r}（{best_kind}，未校准，"
+          f"AUROC={per_signal_auroc[best_name]:.4f}）")
     e_before = ece(y_test, before, n_bins=args.n_bins)
     e_after = ece(y_test, scores, n_bins=args.n_bins)
     gain = (e_before - e_after) / e_before if e_before > 0 else float("nan")
@@ -287,6 +292,8 @@ def main(argv=None) -> int:
             "signals_defined": len(names), "signals_live": n_live,
             "signals_live_internal": n_live_internal,
             "baseline_signal": best_name,
+            "baseline_kind": best_kind,
+            "baseline_auroc": per_signal_auroc[best_name],
             "ece_before": e_before, "ece_after": e_after,
             "ece_relative_gain": gain, "n_bins": args.n_bins,
             "auroc": rank, "brier": brier(y_test, scores),

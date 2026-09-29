@@ -131,6 +131,26 @@ def test_the_report_always_prints_auroc_beside_ece(tmp_path, capsys):
     assert "AUROC" in out
 
 
+def test_the_baseline_is_described_as_what_it_actually_is(tmp_path, capsys):
+    """The first real run called an internal signal "the strongest external one".
+
+    The baseline is deliberately the strongest signal of any kind, so it is often
+    an internal one; the label has to follow the signal rather than the prose that
+    was written when the baseline happened to be external.
+    """
+    data = _write(tmp_path / "ev.jsonl", _evidence_rows(RISK_FACTUAL))
+    assert evaluate.main(["--data", str(data), "--json"]) == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out[out.index("{"):])
+
+    name, kind = payload["baseline_signal"], payload["baseline_kind"]
+    assert kind in ("internal", "external")
+    assert f"（{kind}，" in out, "the printed baseline names its kind"
+    assert f"{name!r}（{kind}" in out
+    internal = {"sequence_confidence", "output_entropy", "visual_attention"}
+    assert kind == ("internal" if name in internal else "external")
+
+
 def test_a_file_without_evidence_says_so(tmp_path):
     data = _write(tmp_path / "ev.jsonl", [{"id": "i0", "label": 0}])
     with pytest.raises(SystemExit, match="no records with evidence"):

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 import re
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -122,6 +123,7 @@ class HFLLaVAProvider:
         self._torch = None
         self.calls = 0
         self.attention_calls = 0
+        self._warned_no_attention = False
 
     # -- loading --------------------------------------------------------
     def load(self) -> None:
@@ -151,8 +153,21 @@ class HFLLaVAProvider:
 
         self._torch = torch
         self._processor = AutoProcessor.from_pretrained(self.model_path)
+        load_kwargs: Dict[str, Any] = {
+            "torch_dtype": getattr(torch, self.dtype),
+            "device_map": self.device,
+        }
+        if self.want_attention:
+            # `output_attentions=True` does nothing under the default `sdpa`
+            # attention, and nothing is exactly what it returns: no error, no
+            # warning, just an empty attentions tuple. The first full run of this
+            # provider asked for attention, counted every pass, and produced a
+            # constant column for `visual_attention` on all 800 items because of
+            # it. Eager attention is slower, and it is the only implementation that
+            # hands the matrices back.
+            load_kwargs["attn_implementation"] = "eager"
         self._model = LlavaForConditionalGeneration.from_pretrained(
-            self.model_path, torch_dtype=getattr(torch, self.dtype), device_map=self.device
+            self.model_path, **load_kwargs
         )
         self._model.eval()
         if self.seed is not None:
@@ -204,6 +219,22 @@ class HFLLaVAProvider:
         )
         if self.want_attention:
             self.attention_calls += 1
+            if attention is None and not self._warned_no_attention:
+                # Say it once, and say what to do. A signal that is silently
+                # constant is worse than one that is missing: it still occupies a
+                # column, and the only place it shows up is a `!!` mark in the
+                # evaluation report that nothing forces anyone to read.
+                self._warned_no_attention = True
+                warnings.warn(
+                    "output_attentions=True returned no attention matrices, so "
+                    "`visual_attention` will be unavailable for every item. The "
+                    "usual cause is an attention implementation that does not "
+                    "return them; this provider asks for `eager` when "
+                    "want_attention is set, so check that the checkpoint supports "
+                    "it. Pass want_attention=False to silence this.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
         self.calls += 1
         return Sample(
