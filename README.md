@@ -25,8 +25,31 @@ Two risk families share the whole decision layer:
 * **`safety`** — does the answer violate a content policy?
 
 What differs is the label, the evidence gathered, and which family-specific
-signal applies (`grounding_check` for factual, `policy_probe` for safety). For
-either family, **eight signals run: three internal and five external.**
+signal applies (`grounding_check` for factual, `policy_probe` for safety).
+
+### How many of them actually run
+
+Nine signal types are defined. Eight apply to either risk family — and **one of
+those eight needs a second model**, so the number that run depends on what the
+deployment can feed:
+
+| deployment | signals that run | composition |
+|---|---|---|
+| **one model** (the usual case) | **7** | 3 internal + 4 external |
+| one model + a second VLM | 8 | 3 internal + 5 external |
+| text-only serving stack | 4 | 0 internal + 4 external |
+
+A single model is enough, and it is what this framework is built around: the
+platform serves one model under evaluation, not two. The optional eighth signal,
+`cross_model_agreement`, is the only thing a second model buys, and its reason for
+existing is narrow but real — resampling *one* model is correlated with itself, so
+a systematic blind spot (a chart the model always misreads) makes every sample
+agree and every consistency signal report confidence. A different model is the
+only way to break that correlation. Whether it earns its cost is a deployment
+decision; the framework reports the count either way rather than assuming.
+
+For either family and any of these configurations, the signals that cannot run
+say so by name in the result.
 
 ## The two ideas worth reading the code for
 

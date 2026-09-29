@@ -49,9 +49,54 @@ def test_the_signal_inventory_is_what_the_readme_claims():
 
 @pytest.mark.parametrize("family", [RISK_FACTUAL, RISK_SAFETY])
 def test_each_family_gets_eight_signals_three_of_them_internal(family):
+    """Eight apply per family. Seven of those run with a single model.
+
+    The distinction matters for the readme's claim: the count that matters is the
+    one that *runs*, and one of the eight needs a second model attached.
+    """
     applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
     assert len(applied) == 8
     assert sum(1 for s in applied if s.kind == SIGNAL_INTERNAL) == 3
+
+    single_model = [s for s in applied if s.name != "cross_model_agreement"]
+    assert len(single_model) == 7
+    assert sum(1 for s in single_model if s.kind == SIGNAL_INTERNAL) == 3
+    assert sum(1 for s in single_model if s.kind == SIGNAL_EXTERNAL) == 4
+
+
+def test_only_one_signal_needs_a_second_model():
+    """A second VLM is a real deployment cost; it must buy exactly one signal.
+
+    Built with full external evidence and no internals, so the unavailable set is
+    the second-model signal plus the three internal ones -- nothing else.
+    """
+    evidence = Evidence(
+        question="q", answer="Flickr", primary=Sample(text="Flickr"),
+        views=[Sample(text="Flickr")],
+        resamples=[Sample(text="Flickr"), Sample(text="Flickr")],
+        verifications=[Sample(text="yes")],
+        ocr_texts=["Flickr"],
+    )
+    report = build_report(evidence)
+    assert sorted(report.missing()) == [
+        "cross_model_agreement", "output_entropy", "sequence_confidence", "visual_attention",
+    ]
+    assert len(report.available()) == 4, "four external signals are live here"
+
+    # Now give the internals, which is the only thing a single model at full
+    # access adds -- the second-model signal stays unavailable.
+    with_internals = Evidence(
+        question="q", answer="Flickr",
+        primary=Sample(text="Flickr", sequence_confidence=0.9, sequence_entropy=0.3,
+                       visual_attention_mass=0.5),
+        views=[Sample(text="Flickr")],
+        resamples=[Sample(text="Flickr"), Sample(text="Flickr")],
+        verifications=[Sample(text="yes")],
+        ocr_texts=["Flickr"],
+    )
+    live = build_report(with_internals)
+    assert len(live.available()) == 6, [s.name for s in live.available()]
+    assert live.missing() == ["cross_model_agreement"]
 
 
 def test_signal_names_are_unique_and_populated():

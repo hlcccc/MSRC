@@ -42,7 +42,9 @@ jobs:
         run: python examples/run_stub.py
 
       # The README states the signal inventory. This asserts it against the code
-      # rather than against the prose, so the two cannot drift apart.
+      # rather than against the prose, so the two cannot drift apart -- including
+      # the distinction between what *applies* and what *runs*: one of the eight
+      # needs a second model, which is a deployment cost worth being explicit about.
       - name: The declared signal inventory holds
         run: |
           python - <<'PY'
@@ -55,12 +57,18 @@ jobs:
           internal = [s.name for s in ALL_SIGNALS if s.kind == "internal"]
           assert len(external) == 6, external
           assert len(internal) == 3, internal
+
           for family in (RISK_FACTUAL, RISK_SAFETY):
               applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
-              n_int = sum(1 for s in applied if s.kind == "internal")
               assert len(applied) == 8, (family, [s.name for s in applied])
-              assert n_int == 3, (family, n_int)
-          print("ok: 6 external + 3 internal; 8 apply per family, 3 of them internal")
+              assert sum(1 for s in applied if s.kind == "internal") == 3
+
+              single = [s for s in applied if s.name != "cross_model_agreement"]
+              assert len(single) == 7, (family, [s.name for s in single])
+              assert sum(1 for s in single if s.kind == "internal") == 3
+
+          print("ok: 9 defined (6 external + 3 internal); "
+                "8 apply per family; 7 run with a single model (3 internal + 4 external)")
           PY
 
   # The decision layer must stay importable with NumPy alone: no torch, no
