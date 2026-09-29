@@ -10,11 +10,26 @@ touching a GPU again.
 It is also what makes the readings auditable. A reviewer can open the JSONL and
 see exactly what each signal was computed from, rather than trusting a summary.
 
-Input: JSONL, one object per line, with at least
+Two input shapes
+----------------
+
+**With an answer** -- the model's output already exists (a published run, a
+platform's production log). The three internal signals cannot be computed for it,
+because the logprobs of *that* generation were never recorded and re-running the
+model produces a different one. They report themselves unavailable.
 
     {"question": ..., "answer": ..., "image": ..., "label": 0|1}
 
-Output: the same records with an ``evidence`` field added.
+**Without an answer** -- supply the accepted answers instead, and this script
+generates the answer under evaluation, captures its internals, and labels it:
+
+    {"question": ..., "image": ..., "gold_answers": ["...", "..."]}
+
+This is the shape that lets all eight signals run, and it is the honest one: the
+answer is produced by the model under test in a call whose internals are recorded
+as they happen.
+
+Output: the same records with ``answer``, ``label`` and ``evidence`` filled in.
 
     python scripts/collect_evidence.py --data chair.jsonl --out evidence.jsonl \\
         --model-path /path/to/llava --k 3
@@ -33,8 +48,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from msrc.provider import PromptSet, gather_evidence  # noqa: E402
-from msrc.signals import Evidence  # noqa: E402
+from msrc.signals import Evidence, normalize_text  # noqa: E402
 from msrc.types import RISK_FACTUAL  # noqa: E402
+
+#: How many accepted answers must agree before a generated answer counts as
+#: correct. The VQA convention divides by three, so three annotators agreeing is
+#: full credit; see examples/make_dev_set.py for the same rule in the development
+#: set builder.
+VQA_AGREEMENT_DIVISOR = 3
 
 
 def load_jsonl(path: Path) -> list:
@@ -50,6 +71,17 @@ def load_jsonl(path: Path) -> list:
     if not rows:
         raise SystemExit(f"{path} holds no records")
     return rows
+
+
+def vqa_label(generated: str, gold_answers) -> int:
+    """1 when the answer is wrong, by the standard VQA agreement rule."""
+    predicted = normalize_text(generated)
+    if not predicted:
+        return 1
+    matches = sum(1 for g in gold_answers if normalize_text(g) == predicted)
+    score = min(matches / VQA_AGREEMENT_DIVISOR, 1.0)
+    return 0 if score >= 0.5 else 1
+
 
 
 def main() -> int:
@@ -109,6 +141,7 @@ def main() -> int:
     print(f"[collect] loaded in {time.time() - started:.1f}s; calls begin")
 
     written = 0
+    generated = 0
     t0 = time.time()
     handle = out_path.open("w", encoding="utf-8")
     try:
@@ -119,19 +152,45 @@ def main() -> int:
                 written += 1
                 continue
 
+            record = dict(record)
+            record["id"] = key
+            question = str(record.get("question", ""))
+            answer = str(record.get("answer", "") or "")
+            image = str(record.get("image", ""))
+
+            # No answer supplied: generate the one under evaluation, so its
+            # internals are captured in the call that produced it.
+            primary = None
+            if not answer:
+                gold = record.get("gold_answers") or record.get("answers") or []
+                if not gold:
+                    raise SystemExit(
+                        f"{args.data} record {key!r} has neither 'answer' nor "
+                        "'gold_answers'; supply one or the other"
+                    )
+                primary = provider.generate(
+                    image, f"{question}\nAnswer with a short phrase only.", do_sample=False
+                )
+                answer = primary.text
+                record["answer"] = answer
+                record["label"] = vqa_label(answer, gold)
+                generated += 1
+
+            if "label" not in record:
+                raise SystemExit(f"{args.data} record {key!r} has no 'label'")
+
             evidence, calls = gather_evidence(
                 provider,
-                str(record.get("question", "")),
-                str(record.get("answer", "")),
-                str(record.get("image", "")),
+                question,
+                answer,
+                image,
                 risk_family=args.risk_family,
                 k=args.k,
                 prompts=PromptSet(),
+                primary_sample=primary,
             )
-            record = dict(record)
-            record["id"] = key
             record["evidence"] = evidence.to_dict()
-            record["model_calls"] = calls
+            record["model_calls"] = calls + (1 if primary is not None else 0)
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             written += 1
 
@@ -150,6 +209,8 @@ def main() -> int:
 
     print(f"[collect] wrote {written} records -> {out_path}")
     print(f"[collect] total generations: {provider.calls}")
+    if generated:
+        print(f"[collect] answers generated by this script (internals captured): {generated}")
     if provider.want_attention:
         print(f"[collect] of which attention passes: {provider.attention_calls}")
 
