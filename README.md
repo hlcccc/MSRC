@@ -239,14 +239,26 @@ the calibration and the evaluation are complete and tested; the evaluation on
 public benchmarks has not been published here, and a number that has not been
 produced should not appear in a table.
 
-[docs/evaluation.md](docs/evaluation.md) is the protocol, and the two commands that
-produce a result are:
+[docs/evaluation.md](docs/evaluation.md) is the protocol, and the three commands
+that produce a result are:
 
 ```bash
-# factual: TextVQA, or any VQA set with accepted answers
+# factual, object hallucination: POPE. One-word references, so correctness is not
+# entangled with answer formatting.
+python -c "from evaluation.datasets.pope import SPLITS, build_records, write_jsonl; \
+           write_jsonl(build_records('/path/to/pope', 'out', splits=SPLITS), 'pope.jsonl')"
+python scripts/collect_evidence.py --data pope.jsonl --out evidence_pope.jsonl \
+    --model-path /path/to/llava --device cuda:1 \
+    --second-model-path /path/to/qwen2.5-vl --second-provider qwen --second-device cuda:0 \
+    --k 3 --want-attention --max-new-tokens 32
+python scripts/evaluate.py --data evidence_pope.jsonl --json
+python scripts/group_report.py --data evidence_pope.jsonl --group-by split
+
+# factual, open-ended: TextVQA, or any VQA set with accepted answers
 python scripts/collect_evidence.py --data textvqa.jsonl --out evidence.jsonl \
     --model-path /path/to/llava --k 3 --want-attention
 python scripts/evaluate.py --data evidence.jsonl --json
+python scripts/threshold_analysis.py --data evidence.jsonl
 
 # safety: MM-SafetyBench, labelled by refusal after generating
 python -c "from evaluation.datasets.mm_safety import build_records, \
@@ -258,10 +270,20 @@ python scripts/collect_evidence.py --data mmsafety.jsonl --out safety.jsonl \
 python scripts/evaluate.py --data safety.jsonl --json
 ```
 
+Passing `--second-model-path` turns on `cross_model_agreement`, the eighth signal and
+the only one a second model buys. The two models can sit on different cards with
+`--device` / `--second-device`, which on a shared machine is usually cheaper than
+packing a 13B and a 7B onto one.
+
 `stratified_sample` takes the same number from each harm category, so the number
 describes the benchmark rather than whichever categories sort first. Its RNG is
 seeded per category, so adding a category to a later release only adds that
 category's items — it does not re-draw the ones already collected and paid for.
+
+**Read the per-group report, not just the pooled one.** POPE's `random`, `popular`
+and `adversarial` splits draw their negative examples differently and are not
+interchangeable; `group_report.py` prints each separately together with the base
+rate a never-warn system scores, which is the number an accuracy has to beat.
 
 **Check the label distribution before collecting.** The safety label is "did the
 model refuse", so it needs a model that does both: one that refuses everything and

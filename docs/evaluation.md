@@ -128,6 +128,34 @@ keep two different findings apart: "the operating point was badly chosen" and
 It shares `evaluation.split` with `evaluate.py`, so the follow-up cannot silently
 describe a different split than the report it is following up on.
 
+### 6. Before blaming the operating point, check the label rule
+
+A shortfall can come from three places, and the cheapest to rule out first is the
+label. The evidence file keeps the model's answer and the accepted answers, so the
+label can be recomputed with no GPU: re-label under each defensible rule, refit, and
+compare the ceilings. On TextVQA that takes seconds and settles it — three rules
+(the VQA two-of-three threshold, any-match, exact majority) all ceiling at 0.79-0.82
+accuracy, and changing the rule moves 33-78 of 800 labels. The labels were not the
+constraint, which is what makes the next step worth GPU time rather than another
+relabelling.
+
+### 7. Report per group, and quote the base rate beside every accuracy
+
+```bash
+python scripts/group_report.py --data evidence.jsonl --group-by split
+```
+
+A pooled number over subsets that are not interchangeable describes no benchmark.
+POPE is the clearest case: `random`, `popular` and `adversarial` draw their negative
+examples differently, so pooling them makes the result depend on the mix ratio you
+happened to build. The same is true of MM-SafetyBench's harm categories.
+
+Beside each group's accuracy it prints the **base rate** — what a system that never
+raises a warning scores on that group. It is the number an accuracy has to beat
+before it means anything. On POPE `random` the model is right 89% of the time, so
+89% accuracy is the floor there, not a result: a method can clear a nominal 85% bar
+on that split while having no warning capability at all.
+
 ## Reporting rules
 
 - **Quote the binning with any ECE.** `n_bins=15, uniform` unless stated.

@@ -91,6 +91,23 @@ until they have been produced.
   ceiling, labelled as a ceiling rather than a result. It shares
   `evaluation/split.py` with `evaluate.py` so the two cannot draw different splits.
 
+- **`scripts/group_report.py`** — metrics per value of a grouping field, with the
+  **base rate** beside each: what a system that never raises a warning scores. A
+  pooled number over subsets that are not interchangeable describes no benchmark,
+  and an accuracy quoted without its base rate is unreadable — on a group where the
+  model is right 89% of the time, 89% accuracy is the floor, not a result.
+
+- **POPE adapter** (`evaluation/datasets/pope.py`) — all three splits, plus
+  `parse_yes_no`. POPE's reference is one word, so the label is what the framework is
+  meant to predict with no answer-matching noise on top, which TextVQA cannot offer.
+  Responses that say neither yes nor no return `None` and are counted as unparsed
+  rather than guessed at.
+
+- **`evaluation/datasets/images.py`** — the image-storage conventions both adapters
+  need, in one place rather than a partial copy in the second one. Both adapters now
+  also do their path and argument checks *before* importing pandas, so a wrong root
+  reports the root instead of a missing optional dependency.
+
 - **`examples/run_stub.py`** — the whole chain on a CPU with no model and no
   weights, run twice: once as a text-only platform and once with generation-time
   internals supplied, to show which channels a deployment can actually feed.
