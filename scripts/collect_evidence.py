@@ -166,6 +166,7 @@ def build_provider(args):
     return providers[args.provider](
         model_path=args.model_path,
         ocr_provider=ocr_provider,
+        device=getattr(args, "device", "cuda"),
         max_new_tokens=args.max_new_tokens,
         seed=args.seed,
         want_attention=args.want_attention,
@@ -194,6 +195,7 @@ def build_second_provider(args):
     return providers[args.second_provider](
         model_path=args.second_model_path,
         ocr_provider=None,
+        device=getattr(args, "second_device", "cuda"),
         max_new_tokens=args.max_new_tokens,
         seed=args.seed,
         want_attention=False,
@@ -225,6 +227,18 @@ def main() -> int:
         default="qwen",
         choices=("llava", "qwen"),
         help="which family --second-model-path is",
+    )
+    parser.add_argument(
+        "--device",
+        default="cuda",
+        help="torch device for the primary model, e.g. cuda:1",
+    )
+    parser.add_argument(
+        "--second-device",
+        default="cuda",
+        help="torch device for the second model. Putting the two on different GPUs "
+             "is usually cheaper than packing both onto one, and it is what makes a "
+             "13B plus a 7B fit on a shared machine",
     )
     parser.add_argument("--k", type=int, default=3, help="resamples per item")
     parser.add_argument("--limit", type=int, default=0, help="stop after N items (0 = all)")
