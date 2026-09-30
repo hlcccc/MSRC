@@ -297,3 +297,39 @@ def test_an_unknown_provider_is_refused(tmp_path):
     with pytest.raises(SystemExit, match="unknown --provider"):
         collector.build_provider(args)
 
+
+
+def test_no_second_model_means_the_eighth_signal_stays_unavailable(tmp_path):
+    """The default must not quietly attach a model nobody asked for."""
+    args = argparse.Namespace(
+        provider="llava", model_path=str(tmp_path), no_ocr=True,
+        max_new_tokens=8, seed=1, want_attention=False,
+        second_model_path="", second_provider="qwen",
+    )
+    assert collector.build_second_provider(args) is None
+
+
+def test_a_second_model_is_built_without_attention_or_ocr(tmp_path):
+    """It answers the question once, so attention on it would be paid for nothing."""
+    from msrc.providers import HFQwenVLProvider
+
+    args = argparse.Namespace(
+        provider="llava", model_path=str(tmp_path), no_ocr=True,
+        max_new_tokens=8, seed=1, want_attention=True,
+        second_model_path="/some/qwen", second_provider="qwen",
+    )
+    second = collector.build_second_provider(args)
+    assert isinstance(second, HFQwenVLProvider)
+    assert second.want_attention is False
+    assert second.ocr_provider is None
+    assert second.model_path == "/some/qwen"
+
+
+def test_an_unknown_second_provider_is_refused(tmp_path):
+    args = argparse.Namespace(
+        provider="llava", model_path=str(tmp_path), no_ocr=True,
+        max_new_tokens=8, seed=1, want_attention=False,
+        second_model_path="/some/model", second_provider="gpt",
+    )
+    with pytest.raises(SystemExit, match="unknown --second-provider"):
+        collector.build_second_provider(args)

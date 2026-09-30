@@ -172,6 +172,34 @@ def build_provider(args):
     )
 
 
+def build_second_provider(args):
+    """The second model, or ``None`` when none was asked for.
+
+    Kept separate from :func:`build_provider` because it is optional and the two
+    have different defaults: the second model only ever answers the question once,
+    so it needs no attention and no OCR, and asking for attention on it would
+    multiply the cost of the whole run for a signal that is not being read.
+    """
+    if not getattr(args, "second_model_path", ""):
+        return None
+
+    from msrc.providers import HFLLaVAProvider, HFQwenVLProvider
+
+    providers = {"llava": HFLLaVAProvider, "qwen": HFQwenVLProvider}
+    if args.second_provider not in providers:
+        raise SystemExit(
+            f"unknown --second-provider {args.second_provider!r}; choose from "
+            f"{sorted(providers)}"
+        )
+    return providers[args.second_provider](
+        model_path=args.second_model_path,
+        ocr_provider=None,
+        max_new_tokens=args.max_new_tokens,
+        seed=args.seed,
+        want_attention=False,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -184,6 +212,19 @@ def main() -> int:
         default="llava",
         choices=("llava", "qwen"),
         help="which model family the checkpoint is; both produce the same signals",
+    )
+    parser.add_argument(
+        "--second-model-path",
+        default="",
+        help="a second, independent model's checkpoint. Supplying one turns on "
+             "cross_model_agreement, the eighth signal, which is the only one a "
+             "second model buys",
+    )
+    parser.add_argument(
+        "--second-provider",
+        default="qwen",
+        choices=("llava", "qwen"),
+        help="which family --second-model-path is",
     )
     parser.add_argument("--k", type=int, default=3, help="resamples per item")
     parser.add_argument("--limit", type=int, default=0, help="stop after N items (0 = all)")
@@ -218,8 +259,14 @@ def main() -> int:
         print(f"[collect] resuming: {len(done)} items already have evidence")
 
     provider = build_provider(args)
+    second_provider = build_second_provider(args)
 
     print(f"[collect] {len(records)} items, k={args.k}, attention={getattr(provider, 'want_attention', False)}")
+    if second_provider is not None:
+        print(
+            f"[collect] second model: {args.second_provider} at "
+            f"{args.second_model_path} -- cross_model_agreement will run"
+        )
     load = getattr(provider, "load", None)
     if callable(load):
         print(f"[collect] loading {args.model_path} ...")
@@ -230,6 +277,13 @@ def main() -> int:
         # A provider that loads lazily on first use is still a valid provider, so
         # this is a branch rather than a requirement.
         print("[collect] provider loads lazily; calls begin")
+
+    if second_provider is not None:
+        second_load = getattr(second_provider, "load", None)
+        if callable(second_load):
+            started = time.time()
+            second_load()
+            print(f"[collect] second model loaded in {time.time() - started:.1f}s")
 
     written = 0
     generated = 0
@@ -320,6 +374,7 @@ def main() -> int:
                 k=args.k,
                 prompts=PromptSet(),
                 primary_sample=primary,
+                second_provider=second_provider,
             )
             record["evidence"] = evidence.to_dict()
             record["model_calls"] = calls + (1 if primary is not None else 0)
