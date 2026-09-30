@@ -34,6 +34,8 @@ import random
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from evaluation.datasets.images import write_image
+
 __all__ = [
     "build_records",
     "stratified_sample",
@@ -64,29 +66,13 @@ def _first_present(row: Dict[str, Any], keys: Iterable[str]) -> Optional[Any]:
 
 
 def _write_image(payload: Any, destination: Path) -> Optional[str]:
-    """Persist one image from whatever the parquet stored."""
-    if payload is None:
-        return None
-    if isinstance(payload, dict) and "bytes" in payload:
-        payload = payload["bytes"]
-    if isinstance(payload, (bytes, bytearray)):
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(bytes(payload))
-        return str(destination)
-    if isinstance(payload, str) and payload:
-        # Some releases store a path or a base64 blob rather than raw bytes.
-        candidate = Path(payload)
-        if candidate.is_file():
-            return str(candidate)
-        import base64
+    """Persist one image from whatever the parquet stored.
 
-        try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(base64.b64decode(payload))
-            return str(destination)
-        except Exception:
-            return None
-    return None
+    Kept as a module-level name because a test refers to it, but the reading of the
+    storage conventions now lives in :mod:`evaluation.datasets.images`, since the
+    POPE adapter needs exactly the same handling.
+    """
+    return write_image(payload, destination)
 
 
 def build_records(
@@ -105,6 +91,21 @@ def build_records(
     report itself unavailable for them -- which is the honest outcome rather than
     a fabricated OCR reading.
     """
+    root = Path(root).expanduser()
+    if not root.is_dir():
+        raise FileNotFoundError(f"dataset root is not a directory: {root}")
+
+    data_dir = root / "data" if (root / "data").is_dir() else root
+    parquets = sorted(data_dir.glob("*/*.parquet"))
+    if not parquets:
+        raise FileNotFoundError(
+            f"no parquet files under {data_dir}. The release keeps one file per "
+            "category and attack, as <category>/<ATTACK>.parquet."
+        )
+
+    # The path checks happen before pandas is imported on purpose: a wrong root
+    # should say the root is wrong, not "install pandas". The optional dependency
+    # is only needed to read the files.
     try:
         import pandas as pd
     except ImportError as exc:  # pragma: no cover - optional dependency
@@ -112,28 +113,21 @@ def build_records(
             "reading MM-SafetyBench needs pandas:\n  pip install pandas"
         ) from exc
 
-    root = Path(root).expanduser()
-    if not root.is_dir():
-        raise FileNotFoundError(f"dataset root is not a directory: {root}")
-
-    data_dir = root / "data" if (root / "data").is_dir() else root
-    parquets = sorted(data_dir.glob("*/*.parquet"))
-    if parquets:
-        # pandas reads parquet only through an engine, and pandas does not install
-        # one. Without this check the failure surfaces deep inside pandas as a
-        # message about pyarrow that never mentions what was actually being done.
-        try:
-            pd.read_parquet(parquets[0], columns=[])
-        except ImportError as exc:
-            raise ImportError(
-                "reading MM-SafetyBench needs a parquet engine, which pandas does "
-                "not install:\n  pip install pyarrow\n"
-                f"(tried to read {parquets[0]})"
-            ) from exc
-        except Exception:
-            # Anything else is the file's problem, not the engine's; let the real
-            # read below report it in context.
-            pass
+    # pandas reads parquet only through an engine, and pandas does not install
+    # one. Without this check the failure surfaces deep inside pandas as a
+    # message about pyarrow that never mentions what was actually being done.
+    try:
+        pd.read_parquet(parquets[0], columns=[])
+    except ImportError as exc:
+        raise ImportError(
+            "reading MM-SafetyBench needs a parquet engine, which pandas does "
+            "not install:\n  pip install pyarrow\n"
+            f"(tried to read {parquets[0]})"
+        ) from exc
+    except Exception:
+        # Anything else is the file's problem, not the engine's; let the real
+        # read below report it in context.
+        pass
 
     image_dir = Path(out_dir).expanduser() / "images"
 

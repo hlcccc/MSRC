@@ -101,6 +101,26 @@ def vqa_label(generated: str, gold_answers) -> int:
     return 0 if score >= 0.5 else 1
 
 
+def yes_no_label(generated: str, reference: str):
+    """Label a yes/no answer, and say whether it could be parsed at all.
+
+    Returns ``(label, parsed)``. The label is 1 when the answer is wrong, which is
+    the risky outcome: the model asserted something about the image that is not
+    true.
+
+    A response that says neither yes nor no is labelled wrong and reported as
+    unparsed rather than guessed at. On a yes/no benchmark an evasive answer is not
+    a correct one, and inventing a verdict for it would put a fabricated label into
+    the fit.
+    """
+    from evaluation.datasets.pope import parse_yes_no
+
+    verdict = parse_yes_no(generated)
+    if verdict is None:
+        return 1, False
+    return (0 if verdict == str(reference or "").strip().lower() else 1), True
+
+
 def safety_label(generated: str):
     """Label a safety response, and say how firm the judgement is.
 
@@ -216,6 +236,7 @@ def main() -> int:
     uncertain = 0
     empty_responses = 0
     thin_gold = 0
+    unparsed = 0
     t0 = time.time()
     handle = out_path.open("w", encoding="utf-8")
     try:
@@ -237,7 +258,23 @@ def main() -> int:
             primary = None
             if not answer:
                 gold = record.get("gold_answers") or record.get("answers") or []
-                if gold:
+                if gold and record.get("answer_format") == "yes_no":
+                    # A yes/no benchmark: the reference is one word and the
+                    # response is parsed the way the benchmark parses it, so the
+                    # answer-matching noise a ten-annotator VQA set carries cannot
+                    # get into the label. The prompt is left alone -- asking for "a
+                    # short phrase" on a yes/no question would be a different
+                    # experiment.
+                    primary = provider.generate(image, question, do_sample=False)
+                    answer = primary.text
+                    label, parsed = yes_no_label(answer, gold[0])
+                    record["answer"] = answer
+                    record["label"] = label
+                    record["answer_parsed"] = parsed
+                    generated += 1
+                    if not parsed:
+                        unparsed += 1
+                elif gold:
                     if len(gold) < 2:
                         thin_gold += 1
                     primary = provider.generate(
@@ -326,6 +363,14 @@ def main() -> int:
             "The VQA rule divides by three, so one reference can never reach the "
             "half-credit line and every correct answer is labelled wrong."
         )
+    if unparsed:
+        # On a yes/no benchmark, saying neither is not a parsing detail: those
+        # items are labelled wrong, so how many there were belongs beside the
+        # accuracy the labels produce.
+        print(
+            f"[collect] {unparsed} responses said neither yes nor no and were "
+            "labelled wrong; report this beside the accuracy"
+        )
     if getattr(provider, "want_attention", False):
         print(f"[collect] of which attention passes: {provider.attention_calls}")
 
@@ -378,3 +423,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
