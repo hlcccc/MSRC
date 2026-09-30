@@ -181,15 +181,28 @@ report = selective_report(calibration_null_scores, test_scores,
 
 The calibration set must hold items known to satisfy the null — correct answers —
 and must be exchangeable with the test items. Nothing in the code can check that;
-the caller owns it. BY is the default because scores from one model on items that
-share an image are not independent.
+the caller owns it.
 
-> **`VALIDATED` is `False`.** The procedure is implemented from the standard
-> definition and unit tested against textbook cases; it has not been checked on
-> this project's data. The flag travels in every report, because a docstring cannot
-> stop a number from being quoted and a field can at least make it visible. The
-> report also keeps `realized_fdp` separate from the guarantee: the guarantee is on
-> the expectation over draws, and the realized value is one draw.
+`scripts/validate_conformal.py` measures the guarantee instead of asserting it, over
+repeated three-way splits. On this project's data, with `BH`, `E[FDP]` stayed at or
+under `alpha` at every level tested, and `VALIDATED` is `True` on that basis. Read it
+as the narrow claim it is — it says nothing about a deployment whose calibration set
+is not exchangeable with its traffic. Two things the measurement also turned up, and
+they matter more in practice than the headline:
+
+> **The expectation is not what a deployment sees.** `E[FDP]` averages over all
+> draws including the ones that reject nothing, where the false discovery proportion
+> is zero by definition. Conditional on the procedure actually firing, the realized
+> FDP was several times `alpha`. The report keeps `realized_fdp` separate from the
+> guarantee for this reason.
+
+> **`BY` had no power at this scale.** It rejected nothing in 100 draws out of 100 up
+> to `alpha = 0.15`. Split-conformal p-values are multiples of `1/(n+1)`, so a
+> rejection needs roughly `n_calibration >= n_test / alpha` *null* items before it is
+> even possible, and `BY`'s harmonic correction puts every threshold below that
+> floor at a few hundred items a side. It remains the safer choice under dependence;
+> it is not a usable one at this sample size. Check the requirement before choosing
+> it.
 
 ## Measuring
 

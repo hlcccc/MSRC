@@ -20,10 +20,25 @@ calibration set being exchangeable with the test set. A calibration set drawn fr
 a different distribution voids it silently, which is the failure mode worth
 guarding against in deployment.
 
-**This implementation is not validated.** ``VALIDATED`` is ``False`` and travels in
-every result. The procedure is implemented from the standard definition and unit
-tested against textbook cases; it has not been checked against the project's real
-data, and a guarantee that has not been measured should not be reported as one.
+**This implementation is now measured, and the measurement is narrow.** It has been
+run against this project's own data by ``scripts/validate_conformal.py``, over
+repeated three-way splits, and ``E[FDP]`` came in at or under ``alpha`` at every
+level tested. Two things that measurement also established, and that matter more to
+a deployment than the headline:
+
+* **The magnitude of the effect is not what one run shows.** ``E[FDP]`` is an
+  average over all draws *including the ones that select nothing*, where the false
+  discovery proportion is zero by definition. Conditional on the procedure actually
+  firing, the realized FDP was several times ``alpha`` -- around 0.13-0.19 against a
+  requested 0.10. A deployment sees the conditional number, not the expectation.
+* **``BY`` had no power at any usable sample size.** At 800 items it rejected
+  nothing at all in 100 out of 100 draws up to ``alpha = 0.15``. Split-conformal
+  p-values are multiples of ``1/(n+1)``, so a rejection needs roughly
+  ``n_calibration >= n_test / alpha`` null items before it is even possible; with a
+  few hundred calibration items and a few hundred tests, ``BY``'s harmonic
+  correction puts every threshold below that floor. It is the safer default under
+  dependence and it is unusable at this scale. ``power_condition()`` in
+  ``scripts/validate_conformal.py`` computes the requirement.
 """
 
 from __future__ import annotations
@@ -42,11 +57,16 @@ __all__ = [
     "selective_report",
 ]
 
-#: Whether the procedure here has been validated on the project's data. False, and
-#: it stays false until someone measures it. It is exported rather than left to
-#: documentation because a downstream caller can test it and a docstring cannot
-#: stop a number from being quoted.
-VALIDATED = False
+#: Whether the procedure here has been measured against the project's own data.
+#: True as of ``scripts/validate_conformal.py``: over repeated three-way splits on
+#: both risk families, ``E[FDP]`` stayed at or under ``alpha`` at every level, with
+#: ``BH``. Read that as the narrow claim it is -- the implementation is sound and
+#: the guarantee held on this data. It says nothing about a deployment whose
+#: calibration set is not exchangeable with its traffic, and it does not make the
+#: power problem go away. The caveats are in the module docstring; this flag is
+#: exported rather than left to documentation because a caller can test it and a
+#: docstring cannot stop a number from being quoted.
+VALIDATED = True
 
 VALID_PROCEDURES = ("BH", "BY")
 
@@ -151,6 +171,11 @@ def selective_report(
 ) -> Dict[str, object]:
     """Everything a deployment needs to decide whether to use the selection.
 
+    A rejection means "this looks riskier than the safe calibration items did", so
+    the selected set is the items to act on. ``realized_fdp`` is the share of them
+    that are in fact correct -- the cost of acting -- and ``correct_items_flagged``
+    is the share of all correct items that were needlessly flagged.
+
     ``realized_fdp`` is only defined when labels are supplied, and it is reported
     separately from the guarantee: the guarantee is about the expectation over
     draws, while the realized value on one test set is a single observation of it.
@@ -195,10 +220,21 @@ def selective_report(
             "that is a result, not a failure.",
         ]
     else:
-        false_discoveries = int(((labels == 1) & accepted).sum())
+        # A rejection means "this looks riskier than the safe calibration items
+        # did", so the selection is the set of items to act on, and a false
+        # discovery is a selected item that is in fact **correct**. Counting
+        # label == 1 here instead -- which this did -- makes the metric run
+        # backwards: a selection that flags every genuinely risky item and nothing
+        # else reports an FDP of 1.0, and one that flags only safe items reports
+        # 0.0. The guarantee would then be checked against a number that is
+        # anti-correlated with the thing it is supposed to measure.
+        false_discoveries = int(((labels == 0) & accepted).sum())
         report["false_discoveries"] = false_discoveries
         report["realized_fdp"] = false_discoveries / selected
-        report["correct_retention"] = (
+        # Of the correct items, the share that was needlessly flagged. This is the
+        # companion cost to coverage: a selection that flags everything has perfect
+        # recall and sends every correct answer to a human.
+        report["correct_items_flagged"] = (
             float(((labels == 0) & accepted).sum() / max((labels == 0).sum(), 1))
         )
         report["notes"] = [

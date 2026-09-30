@@ -24,16 +24,33 @@ from msrc.conformal import (  # noqa: E402
 # The honest flag
 # ---------------------------------------------------------------------------
 
-def test_the_validated_flag_is_false_and_travels():
-    """An unvalidated guarantee must be marked in the payload, not only in prose.
+def test_the_validated_flag_travels_and_now_says_so():
+    """Whatever the flag says must be in the payload, not only in prose.
 
     A docstring cannot stop a caller from quoting a number; a field they have to
-    read can at least make it visible.
+    read can at least make it visible. The flag was False until the procedure was
+    measured on this project's data by scripts/validate_conformal.py, at which
+    point leaving it False would have been its own kind of dishonesty -- reporting
+    an unmeasured guarantee is bad, and so is disclaiming a measured one.
     """
-    assert VALIDATED is False
+    assert VALIDATED is True
     report = selective_report([0.1, 0.2, 0.3, 0.4], [0.15, 0.35], alpha=0.1)
-    assert report["validated"] is False
-    assert any("not been validated" in n for n in report["notes"])
+    assert report["validated"] is True
+    assert not any("not been validated" in n for n in report["notes"])
+
+
+def test_the_report_still_says_realized_fdp_is_one_draw():
+    """Validation of the implementation is not validation of a single run.
+
+    What was measured is that E[FDP] <= alpha over many draws. Conditional on the
+    procedure firing, the realized value was several times alpha, so the caveat
+    matters more now than it did before the measurement, not less.
+    """
+    report = selective_report(
+        [0.05 * (i + 1) for i in range(16)], [0.95, 0.9], test_labels=[1, 0], alpha=0.3
+    )
+    assert any("one draw" in n for n in report["notes"])
+    assert "correct_items_flagged" in report
 
 
 # ---------------------------------------------------------------------------
@@ -177,10 +194,51 @@ def test_realized_fdp_counts_only_true_failures_among_the_accepted():
     assert report["num_accepted"] >= 2, report
     accepted = report["accepted_mask"]
     selected = sum(accepted)
-    expected_fd = sum(1 for a, lab in zip(accepted, labels) if a and lab == 1)
+    # The two high-score items are the risky ones, so rejecting them is correct and
+    # a false discovery is a *correct* item caught in the selection.
+    expected_fd = sum(1 for a, lab in zip(accepted, labels) if a and lab == 0)
     assert report["false_discoveries"] == expected_fd
     assert report["realized_fdp"] == pytest.approx(expected_fd / selected)
     assert "one draw" in " ".join(report["notes"])
+
+
+def test_a_perfect_selection_reports_zero_fdp():
+    """The polarity, stated so it cannot be flipped again by accident.
+
+    Calibration is safe items scoring below every risky test item, so each of them
+    is rejected and the selection is exactly the risky ones: the false discovery
+    rate is zero. Counting label == 1 instead reported 1.0 here -- a perfect
+    selection scored as a total failure, and a useless one as perfect.
+    """
+    calibration = [0.05 * (i + 1) for i in range(16)]  # all below 0.85
+    test = [0.95, 0.9, 0.85, 0.02]
+    labels = [1, 1, 1, 0]
+
+    report = selective_report(
+        calibration, test, test_labels=labels, alpha=0.3, procedure="BH"
+    )
+    assert report["num_accepted"] == 3, report
+    accepted = report["accepted_mask"]
+    assert all(labels[i] == 1 for i, a in enumerate(accepted) if a), (
+        "the selection should be the high-scoring, risky items"
+    )
+    assert report["false_discoveries"] == 0
+    assert report["realized_fdp"] == pytest.approx(0.0)
+    assert report["correct_items_flagged"] == pytest.approx(0.0)
+
+
+def test_a_selection_that_flags_a_correct_item_counts_it():
+    calibration = [0.05 * (i + 1) for i in range(16)]
+    test = [0.95, 0.9]
+    labels = [1, 0]  # the second one looks risky but is correct
+
+    report = selective_report(
+        calibration, test, test_labels=labels, alpha=0.3, procedure="BH"
+    )
+    assert report["num_accepted"] == 2, report
+    assert report["false_discoveries"] == 1
+    assert report["realized_fdp"] == pytest.approx(0.5)
+    assert report["correct_items_flagged"] == pytest.approx(1.0)
 
 
 def test_mismatched_label_length_is_refused():

@@ -145,6 +145,26 @@ until they have been produced.
   suite, and `msrc.signals.signal_names_for()` supplies the column list for the
   documented `fit_from_signals` path instead of leaving each caller to write it out.
 
+- **`realized_fdp` was computed with the polarity inverted.** The module documents
+  the null hypothesis as "this item is not risky", so a rejection means "this looks
+  riskier than the safe calibration items did" and a *false* discovery is a selected
+  item that is in fact **correct**. The code counted `label == 1` — the genuinely
+  risky items — so a selection that flagged every risky item and nothing else
+  reported an FDP of 1.0, and one that flagged only safe items reported 0.0. The
+  metric was anti-correlated with the thing it exists to measure, and a test pinned
+  the wrong polarity. `correct_retention` is renamed `correct_items_flagged`, which
+  is what it computes.
+
+- **`msrc.conformal` is now measured rather than disclaimed.** `VALIDATED` was
+  `False` with a note that the procedure had never been checked against this
+  project's data. `scripts/validate_conformal.py` does that check over repeated
+  three-way splits; with `BH`, `E[FDP]` stayed at or under `alpha` at every level on
+  both risk families, and the flag is `True` on that basis. The same measurement
+  found that `BY` rejects nothing at all at this sample size, and that the realized
+  FDP conditional on the procedure firing is several times `alpha` even though the
+  expectation is controlled. Both are documented, because the second is what a
+  deployment actually experiences.
+
 ### Notes
 
 - The `safety` family's detection quality depends entirely on the policy taxonomy
