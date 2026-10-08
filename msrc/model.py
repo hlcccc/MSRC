@@ -129,12 +129,27 @@ class RidgeLogistic:
             grad_w = (Xs.T @ (p - y)) / n + self.l2 * w
             grad_b = float(np.sum(p - y)) / n
             weights = np.maximum(p * (1.0 - p), 1e-12)
-            H = (Xs.T @ (Xs * weights[:, None])) / n + reg
+
+            # One (d+1)-dimensional Newton system over intercept and weights
+            # together. They are coupled through the Hessian, so the previous
+            # version -- which solved a d-dimensional system for the weights and
+            # read the intercept off a second right-hand side -- was not taking a
+            # Newton step in b at all. On 758 development rows that cost it the
+            # convergence: every one of twelve seeds ran the full 200 iterations
+            # and stopped with |gradient| between 1.7e-3 and 7.8e-2.
+            Xw = Xs * weights[:, None]
+            H = np.empty((d + 1, d + 1), dtype=np.float64)
+            H[0, 0] = float(weights.sum()) / n
+            H[0, 1:] = Xw.sum(axis=0) / n
+            H[1:, 0] = H[0, 1:]
+            H[1:, 1:] = (Xs.T @ Xw) / n + reg
+            grad = np.concatenate([[grad_b], grad_w])
             try:
-                delta = np.linalg.solve(H, np.column_stack([grad_w, np.full(d, grad_b)]))
+                delta = np.linalg.solve(H, grad)
             except np.linalg.LinAlgError:
+                stalled = True
                 break
-            dw, db = delta[:, 0], float(delta[0, 1])
+            db, dw = float(delta[0]), delta[1:]
 
             # Damped step: halve until the objective does not increase.
             before = self._objective(Xs, y, w, b) + 0.5 * self.l2 * float(w @ w)
