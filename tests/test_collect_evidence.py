@@ -1,4 +1,4 @@
-﻿"""The collection script's label rules, and the safety branch it was missing.
+"""The collection script's label rules, and the safety branch it was missing.
 
 The script had no test at all, which is how its safety path came to be absent
 while two other files documented it as working: the MM-SafetyBench adapter emits
@@ -287,6 +287,28 @@ def test_the_provider_flag_picks_the_model_family(tmp_path):
     qwen = collector.build_provider(args_for("qwen"))
     assert isinstance(qwen, HFQwenVLProvider)
     assert qwen.dtype == "bfloat16", "the precision this checkpoint needs"
+
+
+def test_the_dtype_flag_overrides_the_family_default(tmp_path):
+    """A CPU run has to be able to leave fp16 behind.
+
+    Both family defaults are GPU precisions. On CPU, fp16 is refused or slower
+    than fp32, so without this the collector can only ever run where a GPU is
+    free -- and on a shared machine that is the one thing that is not a given.
+    """
+    def args_for(**over):
+        base = dict(
+            provider="llava", model_path=str(tmp_path), no_ocr=True,
+            max_new_tokens=8, seed=1, want_attention=False, device="cpu",
+        )
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    assert collector.build_provider(args_for()).dtype == "float16", "the default stands"
+    assert collector.build_provider(args_for(dtype="")).dtype == "float16", "empty means default"
+    cpu = collector.build_provider(args_for(dtype="float32"))
+    assert cpu.dtype == "float32"
+    assert cpu.device == "cpu"
 
 
 def test_an_unknown_provider_is_refused(tmp_path):

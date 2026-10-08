@@ -163,6 +163,12 @@ def build_provider(args):
         )
 
     ocr_provider = None if args.no_ocr else HFOCRProvider()
+    # The dtype is left to the family default unless it is overridden. Both
+    # defaults (float16 for LLaVA, bfloat16 for Qwen2.5-VL) are GPU precisions:
+    # fp16 on CPU is either refused outright or slower than fp32, so a CPU run
+    # has to be able to say so explicitly.
+    dtype = getattr(args, "dtype", "")
+    extra = {"dtype": dtype} if dtype else {}
     return providers[args.provider](
         model_path=args.model_path,
         ocr_provider=ocr_provider,
@@ -170,6 +176,7 @@ def build_provider(args):
         max_new_tokens=args.max_new_tokens,
         seed=args.seed,
         want_attention=args.want_attention,
+        **extra,
     )
 
 
@@ -231,7 +238,15 @@ def main() -> int:
     parser.add_argument(
         "--device",
         default="cuda",
-        help="torch device for the primary model, e.g. cuda:1",
+        help="torch device for the primary model, e.g. cuda:1. 'cpu' works and "
+             "touches no GPU, but pair it with --dtype float32",
+    )
+    parser.add_argument(
+        "--dtype",
+        default="",
+        help="torch dtype for the primary model, e.g. float32. Empty means the "
+             "family default, which is float16 for LLaVA and bfloat16 for "
+             "Qwen2.5-VL -- both GPU precisions that a CPU cannot run usefully",
     )
     parser.add_argument(
         "--second-device",
