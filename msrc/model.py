@@ -19,6 +19,7 @@ returning a confident number. The guard refuses that fit rather than shipping it
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
@@ -52,15 +53,20 @@ class RidgeLogistic:
     the layout the exported scorer files use.
     """
 
-    def __init__(self, l2: float = 0.05, max_iter: int = 200, tol: float = 1e-9):
+    def __init__(self, l2: float = 0.05, max_iter: int = 200, tol: float = 1e-9,
+                 grad_tol: float = 1e-6):
         self.l2 = float(l2)
         self.max_iter = int(max_iter)
         self.tol = float(tol)
+        #: Stationarity tolerance. The fit is only "converged" when the gradient of
+        #: the mean penalised objective is this close to zero.
+        self.grad_tol = float(grad_tol)
         self.coef_: Optional[np.ndarray] = None
         self.mean_: Optional[np.ndarray] = None
         self.std_: Optional[np.ndarray] = None
         self.success_ = False
         self.n_iter_ = 0
+        self.grad_norm_ = float("inf")
 
     # -- internals ------------------------------------------------------
     def _standardize_fit(self, features: np.ndarray) -> None:
@@ -76,10 +82,20 @@ class RidgeLogistic:
 
     @staticmethod
     def _objective(X: np.ndarray, y: np.ndarray, w: np.ndarray, b: float) -> float:
+        """**Mean** negative log-likelihood, excluding the penalty.
+
+        The mean and not the sum, because the penalty added to it is a fixed
+        ``l2``. On the sum the effective regularisation is ``l2 / n``: the same
+        ``--l2 0.05`` would mean something different at every dataset size, and a
+        *larger* development set would make the problem *less* regularised. That is
+        exactly what happened here -- at 758 development rows the fit was
+        effectively unpenalised, the damped Newton stalled after 49 steps, and the
+        coefficients it returned put 2.3x the base rate on the data they were
+        fitted to. At 220 rows the same code was accidentally fine, which is why
+        the defect stayed hidden.
+        """
         z = X @ w + b
-        # log(1 + exp(z)) computed stably
-        loss = np.sum(np.logaddexp(0.0, z) - y * z)
-        return float(loss)
+        return float(np.mean(np.logaddexp(0.0, z) - y * z))
 
     # -- public API -----------------------------------------------------
     def fit(self, features: Any, labels: Any) -> "RidgeLogistic":
@@ -101,17 +117,19 @@ class RidgeLogistic:
 
         w = np.zeros(d, dtype=np.float64)
         b = 0.0
+        stalled = False
         # Ridge on the weights, not the intercept.
         reg = self.l2 * np.eye(d, dtype=np.float64)
 
         for step in range(self.max_iter):
             z = Xs @ w + b
             p = sigmoid(z)
-            grad_w = Xs.T @ (p - y) + self.l2 * w
-            grad_b = float(np.sum(p - y))
-            # Hessian of the L2-penalised log-likelihood.
+            # Gradients and Hessian of the *mean* objective, so that `l2` weights
+            # the penalty the same way at any n. See `_objective`.
+            grad_w = (Xs.T @ (p - y)) / n + self.l2 * w
+            grad_b = float(np.sum(p - y)) / n
             weights = np.maximum(p * (1.0 - p), 1e-12)
-            H = Xs.T @ (Xs * weights[:, None]) + reg
+            H = (Xs.T @ (Xs * weights[:, None])) / n + reg
             try:
                 delta = np.linalg.solve(H, np.column_stack([grad_w, np.full(d, grad_b)]))
             except np.linalg.LinAlgError:
@@ -131,20 +149,42 @@ class RidgeLogistic:
                     break
                 scale *= 0.5
             if not improved:
+                stalled = True
                 break
 
             shift = max(float(np.max(np.abs(scale * dw))), abs(scale * db))
             w, b = w - scale * dw, b - scale * db
             self.n_iter_ = step + 1
             if shift < self.tol:
-                self.success_ = True
                 break
 
+        z = Xs @ w + b
+        p = sigmoid(z)
+        grad = np.concatenate([
+            [float(np.sum(p - y)) / n],
+            (Xs.T @ (p - y)) / n + self.l2 * w,
+        ])
+        self.grad_norm_ = float(np.max(np.abs(grad)))
         self.coef_ = np.concatenate([[b], w])
-        # Report convergence honestly: a truncated Newton run is still usable, but
-        # callers should be able to see that it did not reach the tolerance.
+
+        # Convergence means the gradient reached zero, not that the loop ended with
+        # finite numbers in it. The previous version reported success whenever the
+        # coefficients were finite, which is true of every run that does not blow
+        # up -- including the stalled one above, whose intercept was off by a
+        # factor of three and which no caller could have noticed.
+        self.success_ = self.grad_norm_ < self.grad_tol
         if not self.success_:
-            self.success_ = self.n_iter_ > 0 and np.all(np.isfinite(self.coef_))
+            warnings.warn(
+                f"the calibrator did not converge: max |gradient| = "
+                f"{self.grad_norm_:.3e} after {self.n_iter_} Newton steps"
+                + (" (the damped step stopped improving the objective)" if stalled else "")
+                + ". The coefficients are returned as they are, because a stalled "
+                "fit still ranks, but the probabilities may be over- or "
+                "under-confident. Check the calibration on held-out data before "
+                "quoting an ECE.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         return self
 
     def predict_proba(self, features: Any) -> np.ndarray:
