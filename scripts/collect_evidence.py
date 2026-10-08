@@ -320,6 +320,28 @@ def main() -> int:
     empty_responses = 0
     thin_gold = 0
     unparsed = 0
+
+    # A record that already carries an answer skips the primary call, and the
+    # primary call is the only one whose internals are read. Three of the seven
+    # signals then come back unavailable -- correctly, because nothing observed
+    # them -- but the report at the end blames the serving stack, which sends the
+    # reader looking in the wrong place. Say it before the collection runs.
+    supplied = sum(1 for r in records if str(r.get("answer", "") or "").strip())
+    if supplied:
+        print(
+            f"[collect] note: {supplied}/{len(records)} input records already carry "
+            "an 'answer', so the answer under evaluation is NOT generated for them "
+            "and no internals are captured for it:"
+        )
+        print(
+            "[collect]       sequence_confidence, output_entropy and visual_attention "
+            "will be unavailable on those items."
+        )
+        print(
+            "[collect]       Drop the 'answer' field to have the model produce the "
+            "answer and read its internals in the call that produced it."
+        )
+
     t0 = time.time()
     handle = out_path.open("w", encoding="utf-8")
     try:
@@ -500,8 +522,17 @@ def main() -> int:
         print(f"    {name:26} {count}")
     if dead:
         print("[collect] signals that never produced a value:")
+        # The hint has to fit the cause. "The serving stack did not supply it" is
+        # the right thing to check when the model ran and returned nothing; it is
+        # the wrong thing to check when the model was never asked, and that is
+        # exactly what an input carrying its own answers does.
+        hint = (
+            "answers were supplied, so the primary was not generated"
+            if supplied
+            else "check the serving stack supplies it"
+        )
         for name, count in Counter(dead).most_common():
-            print(f"    {name:26} {count}  <- check the serving stack supplies it")
+            print(f"    {name:26} {count}  <- {hint}")
     return 0
 
 

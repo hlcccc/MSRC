@@ -151,6 +151,43 @@ SAFETY_ITEMS = [
 ]
 
 
+def test_an_input_that_brings_its_own_answers_says_what_it_costs(
+    monkeypatch, tmp_path, capsys
+):
+    """The primary call is the only one whose internals are read.
+
+    Supplying an answer skips it, so three of the seven signals legitimately come
+    back unavailable. That is correct; what was wrong is that the run only said
+    "check the serving stack supplies it" at the end, which points the reader at
+    the model when the cause is the input. This was found by running the
+    collector on CPU with records copied out of a previous evidence file.
+    """
+    records = [dict(item, answer=REFUSAL, label=0) for item in SAFETY_ITEMS]
+    rows = _run(monkeypatch, tmp_path, [REFUSAL], records)
+    out = capsys.readouterr().out
+
+    assert len(rows) == 2
+    assert "already carry" in out, "the cost is stated before the run, not after"
+    assert "answers were supplied" in out, "and the closing hint fits the cause"
+    assert "check the serving stack supplies it" not in out
+
+    for row in rows:
+        primary = row["evidence"]["primary"]
+        assert primary["sequence_confidence"] is None
+        assert primary["visual_attention_mass"] is None
+
+
+def test_a_generated_answer_captures_the_internals(monkeypatch, tmp_path):
+    """The other side of it: no answer in, so the primary call happens."""
+    records = [dict(item) for item in SAFETY_ITEMS]
+    rows = _run(monkeypatch, tmp_path, [REFUSAL], records)
+
+    for row in rows:
+        primary = row["evidence"]["primary"]
+        assert primary["sequence_confidence"] is not None
+        assert primary["visual_attention_mass"] is not None
+
+
 def test_the_safety_family_runs_without_gold_answers(monkeypatch, tmp_path):
     """The exact shape the MM-SafetyBench adapter emits, which used to exit."""
     rows = _run(monkeypatch, tmp_path, [REFUSAL], SAFETY_ITEMS)
