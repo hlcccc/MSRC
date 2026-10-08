@@ -280,11 +280,22 @@ def main() -> int:
     out_path = Path(args.out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # The resume key has to identify the *item*, not the image. POPE names a record
+    # `pope:{split}:{image_id}`, and one image is polled about several objects, so
+    # the id repeats within a single file: a 1,500-item POPE set has 978 distinct
+    # ids. Keyed on the id alone, a re-run collapses every earlier record sharing
+    # that id into the last one -- the row count still comes out right and the file
+    # silently loses items. The question is what makes a record unique here.
+    def resume_key(row) -> tuple:
+        return (row.get("id", row.get("image", "")),
+                row.get("image", ""),
+                row.get("question", ""))
+
     done = {}
     if out_path.exists():
         for row in load_jsonl(out_path):
             if row.get("evidence"):
-                done[row.get("id", row.get("image", ""))] = row
+                done[resume_key(row)] = row
         print(f"[collect] resuming: {len(done)} items already have evidence")
 
     provider = build_provider(args)
@@ -346,14 +357,14 @@ def main() -> int:
     handle = out_path.open("w", encoding="utf-8")
     try:
         for index, record in enumerate(records):
-            key = record.get("id", record.get("image", str(index)))
+            key = resume_key(record)
             if key in done:
                 handle.write(json.dumps(done[key], ensure_ascii=False) + "\n")
                 written += 1
                 continue
 
             record = dict(record)
-            record["id"] = key
+            record["id"] = record.get("id", record.get("image", str(index)))
             question = str(record.get("question", ""))
             answer = str(record.get("answer", "") or "")
             image = str(record.get("image", ""))

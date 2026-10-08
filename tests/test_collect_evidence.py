@@ -177,6 +177,55 @@ def test_an_input_that_brings_its_own_answers_says_what_it_costs(
         assert primary["visual_attention_mass"] is None
 
 
+def test_resuming_does_not_collapse_items_that_share_an_id(monkeypatch, tmp_path):
+    """POPE names a record after its image, and one image is polled about several
+    objects, so ids repeat inside a single file.
+
+    Keyed on the id alone, a re-run folds every record sharing that id into
+    whichever one was written last: the row count still comes out right and the
+    file silently loses items. The real 1,500-item POPE set has 978 distinct ids
+    across 1,500 items, so this is the normal case, not a corner case.
+    """
+    records = [
+        {"id": "pope:random:img1", "question": "Is there a car?",
+         "image": "/a.png", "answer": REFUSAL, "label": 0},
+        {"id": "pope:random:img1", "question": "Is there a person?",
+         "image": "/a.png", "answer": REFUSAL, "label": 0},
+        {"id": "pope:random:img2", "question": "Is there a car?",
+         "image": "/b.png", "answer": REFUSAL, "label": 0},
+    ]
+    source = tmp_path / "in.jsonl"
+    source.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out.jsonl"
+
+    monkeypatch.setattr(
+        collector, "build_provider", lambda args: StubProvider(answers=[REFUSAL])
+    )
+    argv = [
+        "collect_evidence.py", "--data", str(source), "--out", str(out),
+        "--model-path", str(tmp_path), "--no-ocr", "--k", "1",
+        "--risk-family", RISK_SAFETY, "--save-every", "1",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert collector.main() == 0
+    first = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l]
+    assert len(first) == 3
+
+    # The re-run is the interesting one: it loads what is already on disk.
+    assert collector.main() == 0
+    second = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l]
+
+    assert len(second) == 3, "the row count is not the thing that goes wrong"
+    questions = [(r["image"], r["question"]) for r in second]
+    assert len(set(questions)) == 3, (
+        f"resume collapsed records sharing an id: {questions}"
+    )
+
+
 def test_a_generated_answer_captures_the_internals(monkeypatch, tmp_path):
     """The other side of it: no answer in, so the primary call happens."""
     records = [dict(item) for item in SAFETY_ITEMS]
