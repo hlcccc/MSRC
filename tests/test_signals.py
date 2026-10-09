@@ -43,25 +43,51 @@ from msrc.types import (  # noqa: E402
 def test_the_signal_inventory_is_what_the_readme_claims():
     external = [s for s in ALL_SIGNALS if s.kind == SIGNAL_EXTERNAL]
     internal = [s for s in ALL_SIGNALS if s.kind == SIGNAL_INTERNAL]
-    assert len(external) == 6, [s.name for s in external]
+    assert len(external) == 7, [s.name for s in external]
     assert len(internal) == 3, [s.name for s in internal]
 
 
-@pytest.mark.parametrize("family", [RISK_FACTUAL, RISK_SAFETY])
-def test_each_family_gets_eight_signals_three_of_them_internal(family):
-    """Eight apply per family. Seven of those run with a single model.
+#: How many signals apply to each family, and how many of those run with one model.
+#: The two families are no longer symmetric: `guard_model` is a safety judgement on
+#: the response and means nothing for a hallucination, so it applies to safety only.
+#: Stating the numbers here rather than asserting "8 everywhere" is the point --
+#: an inventory that silently drifts is exactly what this file exists to catch.
+FAMILY_COUNTS = {
+    RISK_FACTUAL: {"applied": 8, "single_model": 7},
+    RISK_SAFETY: {"applied": 9, "single_model": 8},
+}
 
-    The distinction matters for the readme's claim: the count that matters is the
-    one that *runs*, and one of the eight needs a second model attached.
-    """
+
+@pytest.mark.parametrize("family", sorted(FAMILY_COUNTS))
+def test_each_family_gets_its_declared_signal_count(family):
+    """The distinction that matters for the readme's claim is what *runs*:
+    one of the applied signals needs a second model attached."""
+    want = FAMILY_COUNTS[family]
     applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
-    assert len(applied) == 8
+    assert len(applied) == want["applied"], [s.name for s in applied]
     assert sum(1 for s in applied if s.kind == SIGNAL_INTERNAL) == 3
 
     single_model = [s for s in applied if s.name != "cross_model_agreement"]
-    assert len(single_model) == 7
+    assert len(single_model) == want["single_model"]
     assert sum(1 for s in single_model if s.kind == SIGNAL_INTERNAL) == 3
-    assert sum(1 for s in single_model if s.kind == SIGNAL_EXTERNAL) == 4
+    assert sum(1 for s in single_model if s.kind == SIGNAL_EXTERNAL) == want["single_model"] - 3
+
+
+def test_the_guard_signal_is_a_safety_judgement_and_applies_only_there():
+    """A response being harmful says nothing about whether it matches the image."""
+    guard = next(s for s in ALL_SIGNALS if s.name == "guard_model")
+    assert guard.applies_to(RISK_SAFETY)
+    assert not guard.applies_to(RISK_FACTUAL)
+
+
+def test_the_two_guard_channels_are_separate_signals():
+    """`policy_probe` (the model judging itself) and `guard_model` (a model trained
+    for the judgement) are different measurements. Merging them would stop the
+    calibrator weighting them differently, which is the whole reason to have both."""
+    names = [s.name for s in ALL_SIGNALS]
+    assert "policy_probe" in names
+    assert "guard_model" in names
+    assert names.index("policy_probe") != names.index("guard_model")
 
 
 def test_only_one_signal_needs_a_second_model():

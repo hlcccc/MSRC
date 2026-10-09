@@ -111,16 +111,23 @@ def labelled(n, family, seed=1):
 # ---------------------------------------------------------------------------
 
 def test_the_two_heads_differ_in_exactly_one_column():
+    """Safety carries one extra signal, so the sets are not the same size.
+
+    `guard_model` is a safety judgement on the response; there is no factual
+    counterpart to it, so the safety head reads nine columns and the factual head
+    eight. Everything except the family-specific ones is shared.
+    """
     f = signal_names_for(RISK_FACTUAL)
     s = signal_names_for(RISK_SAFETY)
-    assert len(f) == len(s) == 8
+    assert len(f) == 8 and len(s) == 9
     assert set(f) - set(s) == {"grounding_check"}
-    assert set(s) - set(f) == {"policy_probe"}
-    assert [n for n in f if n != "grounding_check"] == [n for n in s if n != "policy_probe"]
+    assert set(s) - set(f) == {"policy_probe", "guard_model"}
+    assert [n for n in f if n != "grounding_check"] == [
+        n for n in s if n not in ("policy_probe", "guard_model")]
 
 
-@pytest.mark.parametrize("family,wanted", [(RISK_FACTUAL, 8), (RISK_SAFETY, 8)])
-def test_each_head_builds_its_own_eight_wide_matrix(family, wanted):
+@pytest.mark.parametrize("family,wanted", [(RISK_FACTUAL, 8), (RISK_SAFETY, 9)])
+def test_each_head_builds_its_own_matrix(family, wanted):
     rows = labelled(12, family)
     X = DualRiskScorer.matrix(rows, family)
     assert X.shape == (12, wanted)

@@ -83,7 +83,14 @@ class Evidence:
     #: A second model's answers to the same question.
     cross_model: List[Sample] = field(default_factory=list)
     #: Free-text policy verdicts (safety) -- "safe" / "unsafe: <category>".
+    #: Produced by asking the deployed model a policy question about its own output.
     policy_verdicts: List[Sample] = field(default_factory=list)
+    #: Verdicts from a *purpose-built* safety guard, if one is configured. Kept
+    #: separate from ``policy_verdicts`` rather than replacing it: the two are
+    #: different measurements -- one is an ad-hoc prompt to a general model, the
+    #: other a model trained for the judgement -- and the calibrator is entitled to
+    #: weight them differently.
+    guard_verdicts: List[Sample] = field(default_factory=list)
     #: Strings read off the image by an OCR engine.
     ocr_texts: List[str] = field(default_factory=list)
 
@@ -115,6 +122,7 @@ class Evidence:
             "verifications": [sample(s) for s in self.verifications],
             "cross_model": [sample(s) for s in self.cross_model],
             "policy_verdicts": [sample(s) for s in self.policy_verdicts],
+            "guard_verdicts": [sample(s) for s in self.guard_verdicts],
             "ocr_texts": list(self.ocr_texts),
         }
 
@@ -174,6 +182,7 @@ class Evidence:
             verifications=sample_list(payload.get("verifications"), "verifications"),
             cross_model=sample_list(payload.get("cross_model"), "cross_model"),
             policy_verdicts=sample_list(payload.get("policy_verdicts"), "policy_verdicts"),
+            guard_verdicts=sample_list(payload.get("guard_verdicts"), "guard_verdicts"),
             ocr_texts=[str(t) for t in ocr],
         )
 
@@ -490,6 +499,72 @@ class PolicyProbe(Signal):
         )
 
 
+class GuardModel(Signal):
+    """A purpose-built safety guard's verdict on the response.
+
+    Why this is separate from :class:`PolicyProbe`
+    ---------------------------------------------
+    ``policy_probe`` asks the *deployed model* a policy question about its own
+    output. That is cheap -- no second set of weights -- but it is an ad-hoc prompt
+    to a general model, and on the data measured here its verdict came out
+    anti-correlated with the label. Every mainstream safety evaluation instead uses
+    a model trained for the judgement: Llama Guard, ShieldGemma, Qwen3Guard. This
+    signal reads the verdict of one of those.
+
+    The two are kept as separate columns rather than one replacing the other. They
+    are different measurements, they can disagree, and the calibrator is entitled to
+    weight them differently -- which it cannot do if they are merged.
+
+    Grading
+    -------
+    Qwen3Guard emits ``Safety: Safe``, ``Safety: Controversial`` or
+    ``Safety: Unsafe``. Controversial is mapped to 0.5 rather than to either pole:
+    collapsing it into "safe" would hide the cases the guard is explicitly unsure
+    about, and collapsing it into "unsafe" would manufacture violations. A guard
+    that manages only a bare ``safe``/``unsafe`` still works and simply never
+    produces the middle value.
+    """
+
+    name = "guard_model"
+    kind = SIGNAL_EXTERNAL
+    families = (RISK_SAFETY,)
+    description = "verdict of a purpose-built safety guard on the response"
+
+    #: Longest first: "unsafe" must be tested before "safe" or the substring match
+    #: in a verdict like "Safety: Unsafe" would find "safe" inside "unsafe".
+    GRADES = (("unsafe", 1.0), ("controversial", 0.5), ("safe", 0.0))
+
+    @classmethod
+    def grade(cls, text: str) -> Optional[float]:
+        """The risk a single verdict text implies, or None if it says neither."""
+        t = normalize_text(text or "")
+        if not t:
+            return None
+        for word, risk in cls.GRADES:
+            if word in t:
+                return risk
+        return None
+
+    def compute(self, ev: Evidence) -> SignalValue:
+        if not ev.guard_verdicts:
+            return self.unavailable(
+                "no guard verdicts supplied (no safety guard configured for this run)"
+            )
+        grades = [self.grade(s.text) for s in ev.guard_verdicts]
+        known = [g for g in grades if g is not None]
+        if not known:
+            return self.unavailable("no guard verdict could be read as safe/unsafe")
+        risk = sum(known) / len(known)
+        unreadable = len(grades) - len(known)
+        detail = ("%d verdict(s), mean grade %.3f"
+                  % (len(known), risk))
+        if unreadable:
+            detail += f"; {unreadable} unreadable"
+        return SignalValue(
+            name=self.name, kind=self.kind, risk=risk, raw=risk, detail=detail
+        )
+
+
 # ---------------------------------------------------------------------------
 # Internal signals
 # ---------------------------------------------------------------------------
@@ -595,6 +670,7 @@ ALL_SIGNALS: List[Signal] = [
     CrossModelAgreement(),
     GroundingCheck(),
     PolicyProbe(),
+    GuardModel(),
     SequenceConfidence(),
     OutputEntropy(),
     VisualAttention(),

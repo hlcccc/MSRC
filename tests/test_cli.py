@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from msrc import MSRCConfig, MSRCPipeline, Sample, StubProvider  # noqa: E402
 from msrc.cli import VERSION, build_parser, main  # noqa: E402
 from msrc.provider import gather_evidence  # noqa: E402
+from msrc.types import RISK_SAFETY  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -60,13 +61,29 @@ def test_version_prints(capsys):
 # ---------------------------------------------------------------------------
 
 def test_signals_reports_the_single_model_count(capsys):
+    """The factual family's counts. The safety family's are asserted below."""
     assert main(["signals"]) == 0
     out = capsys.readouterr().out
-    assert "defined : 9" in out
+    assert "defined : 10" in out
     assert "apply   : 8" in out
     assert "run     : 7" in out
     assert "3 internal + 4 external" in out
     assert "needs a second model" in out
+
+
+def test_signals_reports_the_safety_family_separately(capsys):
+    """Safety carries one more: the guard model, which is a safety judgement.
+
+    Printing the two families with the same counts would be wrong now, and this is
+    where that would show.
+    """
+    assert main(["signals", "--family", RISK_SAFETY]) == 0
+    out = capsys.readouterr().out
+    assert "defined : 10" in out
+    assert "apply   : 9" in out
+    assert "run     : 8" in out
+    assert "3 internal + 5 external" in out
+    assert "guard_model" in out
 
 
 def test_signals_reports_eight_with_a_second_model(capsys):

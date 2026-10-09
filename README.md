@@ -1,7 +1,8 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Nine independent signals, five external and three internal, mapped to a
-calibrated risk score for two risk families.**
+**Ten independent signals, seven external and three internal, mapped to calibrated
+risk scores for two risk families — hallucination and content safety — from a
+single input.**
 
 MSRC scores a *frozen* model's answer after the fact. It does not retrain or
 modify the model under evaluation, and it does not need its weights — but it does
@@ -29,24 +30,39 @@ signal applies (`grounding_check` for factual, `policy_probe` for safety).
 
 ### How many of them actually run
 
-Nine signal types are defined. Eight apply to either risk family — and **one of
-those eight needs a second model**, so the number that run depends on what the
-deployment can feed:
+Ten signal types are defined. The two risk families no longer take the same set:
+`grounding_check` (does the image contain what the answer claims) is a factual
+question, `policy_probe` (does the model's own output break a policy) and
+`guard_model` (what does a purpose-built safety guard say about it) are safety
+questions, and none of the three means anything to the other family. On top of
+that, **`cross_model_agreement` needs a second model**, so the number that run
+depends on what the deployment can feed:
 
-| deployment | signals that run | composition |
-|---|---|---|
-| **one model** (the usual case) | **7** | 3 internal + 4 external |
-| one model + a second VLM | 8 | 3 internal + 5 external |
-| text-only serving stack | 4 | 0 internal + 4 external |
+| deployment | factual | safety | composition |
+|---|---|---|---|
+| **one model** (the usual case) | **7** | **8** | 3 internal + 4 or 5 external |
+| one model + a second VLM | 8 | 9 | 3 internal + 5 or 6 external |
+| text-only serving stack | 4 | 5 | 0 internal + 4 or 5 external |
 
 A single model is enough, and it is what this framework is built around: the
-platform serves one model under evaluation, not two. The optional eighth signal,
-`cross_model_agreement`, is the only thing a second model buys, and its reason for
-existing is narrow but real — resampling *one* model is correlated with itself, so
-a systematic blind spot (a chart the model always misreads) makes every sample
-agree and every consistency signal report confidence. A different model is the
-only way to break that correlation. Whether it earns its cost is a deployment
-decision; the framework reports the count either way rather than assuming.
+platform serves one model under evaluation, not two. `cross_model_agreement` is
+the only thing a second model buys, and its reason for existing is narrow but real
+— resampling *one* model is correlated with itself, so a systematic blind spot (a
+chart the model always misreads) makes every sample agree and every consistency
+signal report confidence. A different model is the only way to break that
+correlation. Whether it earns its cost is a deployment decision; the framework
+reports the count either way rather than assuming.
+
+`guard_model` is the one addition that is worth explaining. `policy_probe` asks the
+model under evaluation a policy question about its own output: cheap, since no
+second set of weights is needed, but it is an ad-hoc prompt to a general model. On
+the data measured here its verdict came out anti-correlated with the label. Every
+mainstream safety evaluation instead uses a model trained for the judgement — Llama
+Guard, ShieldGemma, Qwen3Guard — and this signal reads one of those. The two are
+kept as **separate columns** rather than one replacing the other: they are different
+measurements, they can disagree, and the calibrator should be free to weight them
+differently, which it cannot do if they are merged. A run with no guard configured
+leaves the column unavailable rather than silently zero.
 
 For either family and any of these configurations, the signals that cannot run
 say so by name in the result.
@@ -101,11 +117,12 @@ msrc score    --scorer scorer.json --evidence one.json
 msrc evaluate --data evidence.jsonl
 ```
 
-`msrc signals` reports the honest count — nine defined, eight applicable, **seven
-that run with a single model** — and names the one that needs a second.
+`msrc signals` reports the honest count per family — ten defined, **eight
+applicable and seven that run with a single model** for factual risk, nine and
+eight for safety — and names the ones that need a second model or a guard.
 
 `msrc explain` is the first thing to run on real data: it says which signals
-carry information and which came out constant, because "nine signals are defined"
+carry information and which came out constant, because "ten signals are defined"
 and "six ran on this data" are different claims and only the second is a result.
 
 `msrc score` refuses a scorer with no fitted coefficients. Returning an
@@ -270,10 +287,15 @@ python scripts/collect_evidence.py --data mmsafety.jsonl --out safety.jsonl \
 python scripts/evaluate.py --data safety.jsonl --json
 ```
 
-Passing `--second-model-path` turns on `cross_model_agreement`, the eighth signal and
-the only one a second model buys. The two models can sit on different cards with
-`--device` / `--second-device`, which on a shared machine is usually cheaper than
-packing a 13B and a 7B onto one.
+Passing `--second-model-path` turns on `cross_model_agreement`, the one signal a
+second model buys beyond `guard_model`. The two models can sit on different cards
+with `--device` / `--second-device`, which on a shared machine is usually cheaper
+than packing a 13B and a 7B onto one.
+
+`--dual` collects for both risk families in one pass — the policy probe *and* the
+image read, instead of one or the other. It costs one extra model call plus the OCR
+pass, and it is what lets a single input carry both a hallucination risk and a
+content-safety risk; see `msrc/dual.py`.
 
 `stratified_sample` takes the same number from each harm category, so the number
 describes the benchmark rather than whichever categories sort first. Its RNG is
