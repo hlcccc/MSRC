@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -64,6 +65,40 @@ def load(path):
             if l.strip()]
 
 
+def flush(rows, done, verdicts_by_id, out_path):
+    """Rewrite the annotated file, atomically, and return the label counts.
+
+    The verdicts are generated for the whole file and only then written, so a
+    crash used to lose every item. Writing periodically fixes that, but a
+    periodic write that is itself interrupted would leave a half file and the
+    next run would resume from it, so the rewrite goes to a sibling and is
+    renamed into place: readers see either the old file or the new one.
+    """
+    counts = collections.Counter()
+    tmp = out_path.with_name(out_path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            rid = row.get("id")
+            if rid in done:
+                annotated = done[rid]
+            else:
+                v = verdicts_by_id.get(rid)
+                annotated = dict(row)
+                annotated["evidence"] = dict(row["evidence"])
+                annotated["evidence"]["guard_verdicts"] = (
+                    [{k: v[k] for k in ("text", "raw", "safety", "refusal", "categories")}]
+                    if v else []
+                )
+            label = None
+            vs = (annotated.get("evidence") or {}).get("guard_verdicts") or []
+            if vs:
+                label = vs[0].get("safety")
+            counts[label or "unreadable"] += 1
+            fh.write(json.dumps(annotated, ensure_ascii=False) + "\n")
+    os.replace(tmp, out_path)
+    return counts
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, help="evidence JSONL to annotate")
@@ -75,6 +110,17 @@ def main() -> int:
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--gpu-memory-fraction", type=float, default=0.0,
                     help="cap this process on a shared GPU; see collect_evidence.py")
+    ap.add_argument("--gpu-gib", type=int, default=0,
+                    help="with --offload: hard cap on the GPU, in GiB. The rest of "
+                         "the guard goes to host memory.")
+    ap.add_argument("--cpu-gib", type=int, default=64,
+                    help="with --offload: cap on host memory for the guard")
+    ap.add_argument("--offload", action="store_true",
+                    help="split the guard between the GPU and host memory instead of "
+                         "requiring it to fit. The guard is 16 GB and on a shared "
+                         "machine the collector that produced the evidence is still "
+                         "holding most of the card, so a whole-model load can fail; "
+                         "with an 8B model the spill cost is small.")
     args = ap.parse_args()
 
     from msrc.signals import GuardModel
@@ -104,6 +150,15 @@ def main() -> int:
 
     verdicts_by_id = {}
     if todo:
+        if args.offload:
+            # Pin to one card before torch initialises. `device_map="auto"`
+            # honours `max_memory` and spills to host RAM, but it would also be
+            # free to take a *second* card -- and on this shared machine the
+            # second card is somebody else's training. Hiding it makes "auto"
+            # safe, exactly as in mmsafety_asr_judge.py.
+            index = args.device.split(":")[-1] if ":" in args.device else "0"
+            os.environ["CUDA_VISIBLE_DEVICES"] = index
+
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -112,10 +167,24 @@ def main() -> int:
             cap_gpu_memory(args.gpu_memory_fraction, args.device)
 
         tok = AutoTokenizer.from_pretrained(args.model_path, padding_side="left")
-        model = AutoModelForCausalLM.from_pretrained(
-            args.model_path, torch_dtype=torch.bfloat16, device_map=args.device)
+        if args.offload:
+            gpu = args.gpu_gib or 12
+            print("[guard] offloading: max_memory = {0: '%dGiB', 'cpu': '%dGiB'}"
+                  % (gpu, args.cpu_gib), flush=True)
+            model = AutoModelForCausalLM.from_pretrained(
+                args.model_path, torch_dtype=torch.bfloat16,
+                device_map="auto",
+                max_memory={0: "%dGiB" % gpu, "cpu": "%dGiB" % args.cpu_gib},
+                low_cpu_mem_usage=True)
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                args.model_path, torch_dtype=torch.bfloat16, device_map=args.device)
         model.eval()
         print("[guard] model loaded", flush=True)
+
+        # With an offloaded model the inputs still have to start on the device
+        # holding the embedding, which is what `model.device` reports.
+        target = model.device if args.offload else args.device
 
         for start in range(0, len(todo), args.batch_size):
             chunk = todo[start:start + args.batch_size]
@@ -124,7 +193,7 @@ def main() -> int:
                  {"role": "assistant", "content": r["evidence"]["answer"]}],
                 tokenize=False, add_generation_prompt=True) for r in chunk]
             enc = tok(texts, return_tensors="pt", padding=True,
-                      truncation=True, max_length=4096).to(args.device)
+                      truncation=True, max_length=4096).to(target)
             with torch.no_grad():
                 gen = model.generate(**enc, max_new_tokens=args.max_new_tokens,
                                      do_sample=False,
@@ -143,28 +212,10 @@ def main() -> int:
             if (start // args.batch_size) % 20 == 0:
                 print("[guard]   %d/%d" % (min(start + args.batch_size, len(todo)),
                                            len(todo)), flush=True)
+                flush(rows, done, verdicts_by_id, out_path)
 
     # ---- write the annotated evidence, preserving everything else ----
-    counts = collections.Counter()
-    with out_path.open("w", encoding="utf-8") as fh:
-        for row in rows:
-            rid = row.get("id")
-            if rid in done:
-                annotated = done[rid]
-            else:
-                v = verdicts_by_id.get(rid)
-                annotated = dict(row)
-                annotated["evidence"] = dict(row["evidence"])
-                annotated["evidence"]["guard_verdicts"] = (
-                    [{k: v[k] for k in ("text", "raw", "safety", "refusal", "categories")}]
-                    if v else []
-                )
-            label = None
-            vs = (annotated.get("evidence") or {}).get("guard_verdicts") or []
-            if vs:
-                label = vs[0].get("safety")
-            counts[label or "unreadable"] += 1
-            fh.write(json.dumps(annotated, ensure_ascii=False) + "\n")
+    counts = flush(rows, done, verdicts_by_id, out_path)
 
     total = sum(counts.values())
     print()

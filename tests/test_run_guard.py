@@ -76,3 +76,131 @@ def test_what_the_signal_reads_matches_what_the_runner_wrote(text, expected):
 
     safety = runner.parse_verdict(text)[0]
     assert GuardModel.grade("Safety: %s" % safety) == expected
+
+
+# --------------------------------------------------------------------------
+# The guard shares GPU 0 with the collector that produced the evidence, and on
+# the real runs it was launched while that collector still held most of the
+# card. Whole-model loading then fails, and because the runner annotates after
+# generating, a failure there loses the whole column rather than one row. The
+# offload flags are the fix; these pin the contract, since exercising them for
+# real needs a GPU.
+# --------------------------------------------------------------------------
+
+
+def _help_text() -> str:
+    import subprocess
+
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "run_guard.py"), "--help"],
+        cwd=str(ROOT), capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout
+
+
+def test_the_offload_flags_are_on_the_command_line():
+    """`--help` runs before torch is imported, so this needs no GPU."""
+    text = _help_text()
+    for flag in ("--offload", "--gpu-gib", "--cpu-gib"):
+        assert flag in text, flag
+
+
+def test_offloading_pins_one_card_before_torch_is_imported():
+    """`device_map="auto"` would otherwise be free to take the second A100."""
+    src = (ROOT / "scripts" / "run_guard.py").read_text(encoding="utf-8")
+    pin = src.index('os.environ["CUDA_VISIBLE_DEVICES"]')
+    assert pin < src.index("import torch", pin), "pin must precede torch init"
+
+
+def test_offloading_caps_memory_and_honours_host_spill():
+    src = (ROOT / "scripts" / "run_guard.py").read_text(encoding="utf-8")
+    assert 'device_map="auto"' in src
+    assert "max_memory=" in src
+
+
+def test_an_offloaded_model_gets_its_inputs_on_its_own_device():
+    """A spilled model's embedding may not sit on the card we were handed."""
+    src = (ROOT / "scripts" / "run_guard.py").read_text(encoding="utf-8")
+    assert ".to(target)" in src
+    assert "model.device" in src
+
+
+# --------------------------------------------------------------------------
+# Writing. The five-thousand-item run annotates for hours; a crash near the end
+# must not throw the earlier verdicts away, and a half-written file must not be
+# mistaken for a good one on the next start.
+# --------------------------------------------------------------------------
+
+
+def _row(rid):
+    return {"id": rid, "evidence": {"question": "Q?", "answer": "A."},
+            "extra": {"keep": "me"}}
+
+
+def _verdict(text):
+    """The dict `main` builds for one completion, so the test exercises the real path."""
+    safety, refusal, categories = runner.parse_verdict(text)
+    return {"text": ("Safety: %s" % safety) if safety else "",
+            "raw": text.strip(), "safety": safety,
+            "refusal": refusal, "categories": categories}
+
+
+def test_flush_writes_every_row_and_keeps_the_other_fields(tmp_path):
+    import json
+
+    out = tmp_path / "guarded.jsonl"
+    rows = [_row("a"), _row("b")]
+    v = {"a": _verdict(FULL_SAFE), "b": _verdict(FULL_UNSAFE)}
+    counts = runner.flush(rows, {}, v, out)
+    assert counts["Safe"] == 1 and counts["Unsafe"] == 1
+    back = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
+    assert [r["id"] for r in back] == ["a", "b"]
+    assert back[0]["extra"] == {"keep": "me"}
+    assert back[0]["evidence"]["question"] == "Q?"
+
+
+def test_a_row_with_no_verdict_reads_as_unreadable_not_safe(tmp_path):
+    """An unannotated item must not be silently counted as a clean bill."""
+    out = tmp_path / "guarded.jsonl"
+    counts = runner.flush([_row("a")], {}, {}, out)
+    assert counts["unreadable"] == 1 and counts["Safe"] == 0
+
+
+def test_a_failed_parse_is_unreadable_rather_than_safe(tmp_path):
+    out = tmp_path / "guarded.jsonl"
+    counts = runner.flush([_row("a")], {}, {"a": _verdict("I cannot help with that.")}, out)
+    assert counts["unreadable"] == 1 and counts["Safe"] == 0
+
+
+def test_flush_leaves_no_temp_file_behind(tmp_path):
+    out = tmp_path / "guarded.jsonl"
+    runner.flush([_row("a")], {}, {"a": _verdict(FULL_SAFE)}, out)
+    assert [p.name for p in tmp_path.iterdir()] == ["guarded.jsonl"]
+
+
+def test_a_flushed_file_resumes(tmp_path):
+    """What a periodic write leaves behind has to be readable as `done` next time."""
+    from msrc.signals import GuardModel
+
+    out = tmp_path / "guarded.jsonl"
+    v = {"a": _verdict(FULL_SAFE), "b": _verdict(FULL_UNSAFE)}
+    runner.flush([_row("a"), _row("b")], {}, v, out)
+
+    done = {}
+    for row in runner.load(out):
+        vs = (row.get("evidence") or {}).get("guard_verdicts") or []
+        if vs and GuardModel.grade(vs[0].get("text", "")) is not None:
+            done[row["id"]] = row
+    assert set(done) == {"a", "b"}
+
+
+def test_an_already_done_row_is_carried_over_verbatim(tmp_path):
+    """Resume has to keep the earlier annotation, not re-ask and not blank it."""
+    out = tmp_path / "guarded.jsonl"
+    prior = _row("a")
+    prior["evidence"]["guard_verdicts"] = [_verdict(FULL_CONTRO)]
+    counts = runner.flush([_row("a"), _row("b")], {"a": prior},
+                          {"b": _verdict(FULL_SAFE)}, out)
+    assert counts["Controversial"] == 1 and counts["Safe"] == 1
+
+
