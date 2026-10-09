@@ -67,26 +67,31 @@ jobs:
 
           external = [s.name for s in ALL_SIGNALS if s.kind == "external"]
           internal = [s.name for s in ALL_SIGNALS if s.kind == "internal"]
-          assert len(external) == 7, external
+          assert len(external) == 9, external
           assert len(internal) == 3, internal
 
-          counts = {RISK_FACTUAL: 8, RISK_SAFETY: 9}
+          counts = {RISK_FACTUAL: 8, RISK_SAFETY: 4}
           for family, want in counts.items():
               applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
               assert len(applied) == want, (family, [s.name for s in applied])
-              assert sum(1 for s in applied if s.kind == "internal") == 3
+              internal = sum(1 for s in applied if s.kind == "internal")
+              assert internal == (3 if family == RISK_FACTUAL else 0)
 
               single = [s for s in applied if s.name != "cross_model_agreement"]
-              assert len(single) == want - 1, (family, [s.name for s in single])
-              assert sum(1 for s in single if s.kind == "internal") == 3
+              assert len(single) == want - (1 if family == RISK_FACTUAL else 0), \
+                  (family, [s.name for s in single])
 
           # a response being harmful says nothing about whether it matches the image
           guard = next(s for s in ALL_SIGNALS if s.name == "guard_model")
           assert guard.applies_to(RISK_SAFETY) and not guard.applies_to(RISK_FACTUAL)
 
-          print("ok: 10 defined (7 external + 3 internal); "
-                "8 apply to factual and 9 to safety; "
-                "7 and 8 run with a single model (3 internal in both)")
+          # the two families share no signal at all
+          f = {s.name for s in ALL_SIGNALS if s.applies_to(RISK_FACTUAL)}
+          s = {s.name for s in ALL_SIGNALS if s.applies_to(RISK_SAFETY)}
+          assert not (f & s), f & s
+
+          print("ok: 12 defined; 8 apply to factual (3 internal) and 4 to "
+                "safety (none internal); the families share no signal")
           PY
 
   # The decision layer must stay importable with NumPy alone: no torch, no

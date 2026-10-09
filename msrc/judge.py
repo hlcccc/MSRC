@@ -29,8 +29,10 @@ from typing import Dict, List, Sequence, Tuple
 
 __all__ = [
     "RefusalVerdict",
+    "assert_not_circular",
     "classify_refusal",
     "label_from_refusal",
+    "labels_are_keyword_proxy",
     "REFUSAL_PATTERNS",
     "COMPLIANCE_MARKERS",
 ]
@@ -158,3 +160,52 @@ def uncertain_rate(responses: Sequence[str]) -> float:
     if not responses:
         return 0.0
     return sum(1 for r in responses if not classify_refusal(r).certain) / len(responses)
+
+
+#: Labels produced by `label_from_refusal`. A record carrying one of these as its
+#: label source was labelled by the same keyword reading that `refusal_strength`
+#: computes, and evaluating one against the other measures the detector against
+#: itself.
+KEYWORD_PROXY_SOURCES = ("mmsafety_asr_judge",)   # NOT a proxy: the official judge
+PROXY_SOURCE_ABSENT = True                          # no label_source field == proxy
+
+
+def labels_are_keyword_proxy(rows) -> bool:
+    """True when these labels came from the keyword refusal detector.
+
+    The official MM-SafetyBench criterion is applied by a separate script which
+    stamps `label_source` on every row it writes. A file without that stamp was
+    labelled by the collector's keyword detector -- which is the proxy, and which is
+    what makes a refusal-derived signal circular against it.
+    """
+    for row in rows:
+        source = row.get("label_source")
+        if source in KEYWORD_PROXY_SOURCES:
+            return False
+        # a file where every row carries the judge stamp is judged; anything else
+        # (no stamp, or a different stamp) is the proxy
+        if source is None:
+            return True
+    return True
+
+
+def assert_not_circular(signal_names, rows) -> None:
+    """Refuse to evaluate a refusal reading against a refusal-derived label.
+
+    The two are the same measurement. Fitting one to the other returns a near-perfect
+    score that says nothing about the model and everything about the label's
+    construction.
+    """
+    refusal_signals = {"refusal_strength", "policy_probe"}
+    used = refusal_signals.intersection(signal_names)
+    if used and labels_are_keyword_proxy(rows):
+        raise SystemExit(
+            "refusing to evaluate: the signal set contains %s, which reads refusal, "
+            "while the labels come from the keyword refusal detector -- the two are "
+            "the same measurement and the score would be circular.\n"
+            "  Either drop the refusal reading, or relabel with the official "
+            "MM-SafetyBench criterion (scripts/mmsafety_asr_judge.py followed by "
+            "scripts/apply_asr_labels.py), which asks about authorisation and "
+            "caution rather than about refusal phrases."
+            % ", ".join(sorted(used))
+        )

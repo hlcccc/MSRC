@@ -56,12 +56,13 @@ def test_each_family_names_its_declared_signals():
     The two families are deliberately asymmetric now: `guard_model` judges whether a
     response is harmful, which is a safety question with no factual counterpart.
     """
-    counts = {RISK_FACTUAL: 8, RISK_SAFETY: 9}
+    counts = {RISK_FACTUAL: 8, RISK_SAFETY: 4}
     for family in RISK_FAMILIES:
         names = signal_names_for(family)
         assert len(names) == counts[family], (family, names)
         single = [n for n in names if n != "cross_model_agreement"]
-        assert len(single) == counts[family] - 1, (family, single)
+        dropped = 1 if "cross_model_agreement" in names else 0
+        assert len(single) == counts[family] - dropped, (family, single)
 
 
 def test_fitting_on_invented_names_is_refused_at_scoring_time():

@@ -43,7 +43,7 @@ from msrc.types import (  # noqa: E402
 def test_the_signal_inventory_is_what_the_readme_claims():
     external = [s for s in ALL_SIGNALS if s.kind == SIGNAL_EXTERNAL]
     internal = [s for s in ALL_SIGNALS if s.kind == SIGNAL_INTERNAL]
-    assert len(external) == 7, [s.name for s in external]
+    assert len(external) == 9, [s.name for s in external]
     assert len(internal) == 3, [s.name for s in internal]
 
 
@@ -54,7 +54,7 @@ def test_the_signal_inventory_is_what_the_readme_claims():
 #: an inventory that silently drifts is exactly what this file exists to catch.
 FAMILY_COUNTS = {
     RISK_FACTUAL: {"applied": 8, "single_model": 7},
-    RISK_SAFETY: {"applied": 9, "single_model": 8},
+    RISK_SAFETY: {"applied": 4, "single_model": 4},
 }
 
 
@@ -65,12 +65,25 @@ def test_each_family_gets_its_declared_signal_count(family):
     want = FAMILY_COUNTS[family]
     applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
     assert len(applied) == want["applied"], [s.name for s in applied]
-    assert sum(1 for s in applied if s.kind == SIGNAL_INTERNAL) == 3
+    internal = sum(1 for s in applied if s.kind == SIGNAL_INTERNAL)
+    assert internal == (3 if family == RISK_FACTUAL else 0)
 
     single_model = [s for s in applied if s.name != "cross_model_agreement"]
     assert len(single_model) == want["single_model"]
-    assert sum(1 for s in single_model if s.kind == SIGNAL_INTERNAL) == 3
-    assert sum(1 for s in single_model if s.kind == SIGNAL_EXTERNAL) == want["single_model"] - 3
+    assert sum(1 for s in single_model if s.kind == SIGNAL_EXTERNAL) == want["single_model"] - internal
+
+
+def test_no_signal_is_shared_between_the_families():
+    """The instruction, as an assertion: the two detectors use their own signals.
+
+    Seven of the safety family's nine columns used to be the hallucination
+    signals with one column swapped, and every one of them separated the safety
+    classes by less than 0.08. A column that carries no information about the
+    question costs a parameter the development half cannot afford.
+    """
+    f = {s.name for s in ALL_SIGNALS if s.applies_to(RISK_FACTUAL)}
+    s = {s.name for s in ALL_SIGNALS if s.applies_to(RISK_SAFETY)}
+    assert not (f & s), f & s
 
 
 def test_the_guard_signal_is_a_safety_judgement_and_applies_only_there():

@@ -64,7 +64,7 @@ def test_signals_reports_the_single_model_count(capsys):
     """The factual family's counts. The safety family's are asserted below."""
     assert main(["signals"]) == 0
     out = capsys.readouterr().out
-    assert "defined : 10" in out
+    assert "defined : 12" in out
     assert "apply   : 8" in out
     assert "run     : 7" in out
     assert "3 internal + 4 external" in out
@@ -79,10 +79,10 @@ def test_signals_reports_the_safety_family_separately(capsys):
     """
     assert main(["signals", "--family", RISK_SAFETY]) == 0
     out = capsys.readouterr().out
-    assert "defined : 10" in out
-    assert "apply   : 9" in out
-    assert "run     : 8" in out
-    assert "3 internal + 5 external" in out
+    assert "defined : 12" in out
+    assert "apply   : 4" in out
+    assert "run     : 4" in out
+    assert "0 internal + 4 external" in out
     assert "guard_model" in out
 
 

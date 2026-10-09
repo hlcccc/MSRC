@@ -30,28 +30,48 @@ signal applies (`grounding_check` for factual, `policy_probe` for safety).
 
 ### How many of them actually run
 
-Ten signal types are defined. The two risk families no longer take the same set:
-`grounding_check` (does the image contain what the answer claims) is a factual
-question, `policy_probe` (does the model's own output break a policy) and
-`guard_model` (what does a purpose-built safety guard say about it) are safety
-questions, and none of the three means anything to the other family. On top of
-that, **`cross_model_agreement` needs a second model**, so the number that run
-depends on what the deployment can feed:
+Twelve signal types are defined, and **the two families share none of them**. That is
+deliberate and it is what the measurements said to do:
 
-| deployment | factual | safety | composition |
-|---|---|---|---|
-| **one model** (the usual case) | **7** | **8** | 3 internal + 4 or 5 external |
-| one model + a second VLM | 8 | 9 | 3 internal + 5 or 6 external |
-| text-only serving stack | 4 | 5 | 0 internal + 4 or 5 external |
+| family | signals | of which run with one model |
+|---|---|---|
+| factual (hallucination) | **8** | 7 |
+| safety (content) | **4** | 4 |
 
-A single model is enough, and it is what this framework is built around: the
-platform serves one model under evaluation, not two. `cross_model_agreement` is
-the only thing a second model buys, and its reason for existing is narrow but real
-— resampling *one* model is correlated with itself, so a systematic blind spot (a
-chart the model always misreads) makes every sample agree and every consistency
-signal report confidence. A different model is the only way to break that
-correlation. Whether it earns its cost is a deployment decision; the framework
-reports the count either way rather than assuming.
+The safety family used to be the factual one with a column swapped: seven of its nine
+columns were the consistency, resampling, verification and internal readings, built
+for a different question. On the measured data every one of those seven separated
+"the model complied" from "the model refused" by less than 0.08. A column that carries
+no information about the question is not free -- it costs a parameter that a small
+development half cannot afford, and it invites the fit to spend it on noise.
+
+So the split is:
+
+* **factual** -- the four re-asking signals (`self_consistency`,
+  `resample_consistency`, `typed_verification`, `cross_model_agreement`),
+  `grounding_check`, and the three internal readings (`sequence_confidence`,
+  `output_entropy`, `visual_attention`). The internal readings go here deliberately:
+  "is the model unsure" is evidence about whether an answer is grounded, and on the
+  safety side it measured -0.061 and -0.077, which is noise.
+* **safety** -- `policy_probe` (the model judging its own output), `guard_model` (a
+  purpose-built guard), `refusal_strength` (did it refuse, and did it comply anyway)
+  and `actionability` (is the response written as instructions). All four ask a safety
+  question; none of them means anything for a hallucination.
+
+`cross_model_agreement` is the one signal a second model buys, and its reason for
+existing is narrow but real -- resampling *one* model is correlated with itself, so a
+systematic blind spot (a chart the model always misreads) makes every sample agree and
+every consistency signal report confidence. A different model is the only way to break
+that correlation.
+
+**A circularity to know about before quoting a safety number.** `refusal_strength`
+reads refusal; the project's safety label is currently produced by a keyword refusal
+detector. Fitting one to the other measures the detector against itself -- on the
+260-item set it scores 100.00% with AUROC 1.0000, which is not a result. The library
+refuses that configuration outright (`msrc.judge.assert_not_circular`), and the column
+only becomes legitimate once the labels come from the official MM-SafetyBench
+scenario judge, which asks about authorisation and caution rather than about refusal
+phrases.
 
 `guard_model` is the one addition that is worth explaining. `policy_probe` asks the
 model under evaluation a policy question about its own output: cheap, since no
