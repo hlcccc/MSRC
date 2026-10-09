@@ -23,6 +23,7 @@ from msrc.conformal import (
     select,
     selective_report,
 )
+from msrc.dual import DualRisk, DualRiskScorer
 from msrc.model import FusionHead, RiskCalibrator, RidgeLogistic
 from msrc.pipeline import DEFAULT_THRESHOLD, MSRCConfig, MSRCPipeline
 from msrc.provider import ModelProvider, PromptSet, StubProvider, gather_evidence
@@ -51,6 +52,8 @@ __version__ = "0.1.0"
 __all__ = [
     "ALL_SIGNALS",
     "DEFAULT_THRESHOLD",
+    "DualRisk",
+    "DualRiskScorer",
     "Evidence",
     "FusionHead",
     "MSRCConfig",

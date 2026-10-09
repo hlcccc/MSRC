@@ -307,6 +307,16 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260920)
     parser.add_argument("--save-every", type=int, default=20)
     parser.add_argument(
+        "--dual",
+        action="store_true",
+        help="collect for BOTH risk families in one pass: ask the policy probe as "
+             "well as read the image, instead of one or the other. Costs one extra "
+             "model call plus the OCR pass, and is what lets a single input carry "
+             "both a hallucination risk and a content-safety risk. Off by default "
+             "because every collection so far was for one family and the two "
+             "family-specific channels were mutually exclusive until now",
+    )
+    parser.add_argument(
         "--gpu-memory-fraction",
         type=float,
         default=0.0,
@@ -504,6 +514,7 @@ def main() -> int:
                 prompts=PromptSet(),
                 primary_sample=primary,
                 second_provider=second_provider,
+                dual=args.dual,
             )
             record["evidence"] = evidence.to_dict()
             record["model_calls"] = calls + (1 if primary is not None else 0)

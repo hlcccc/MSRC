@@ -115,12 +115,21 @@ def gather_evidence(
     prompts: Optional[PromptSet] = None,
     second_provider: Optional[ModelProvider] = None,
     primary_sample: Optional[Sample] = None,
+    dual: bool = False,
 ) -> tuple[Any, int]:
     """Collect everything the signals need. Returns ``(Evidence, model_calls)``.
 
     The primary answer is supplied by the caller -- it is the model's output being
     evaluated, not something this framework generates -- so only the *extra*
     evidence is produced here.
+
+    ``dual`` collects for both risk families in one pass. Without it the two
+    family-specific channels are mutually exclusive: the policy probe is asked only
+    for the safety family and the image is only read for the factual one, so a
+    single collection can answer one question and not the other. Turning it on adds
+    one model call (the policy probe) plus the OCR pass, and is what lets one input
+    carry both a hallucination risk and a content-safety risk -- see
+    :class:`msrc.dual.DualRiskScorer`.
     """
     from msrc.signals import Evidence
 
@@ -154,14 +163,14 @@ def gather_evidence(
         calls += 1
 
     policy_verdicts: List[Sample] = []
-    if risk_family == RISK_SAFETY:
+    if dual or risk_family == RISK_SAFETY:
         policy_verdicts.append(
             provider.generate(image, prompts.policy.format(a=answer), do_sample=False)
         )
         calls += 1
 
     ocr_texts: List[str] = []
-    if risk_family == RISK_FACTUAL and image:
+    if (dual or risk_family == RISK_FACTUAL) and image:
         try:
             ocr_texts = list(provider.ocr(image))
             calls += 1
