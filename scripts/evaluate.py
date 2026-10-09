@@ -44,6 +44,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from evaluation.metrics import auroc, brier, ece, format_summary, summarise  # noqa: E402
+from evaluation.groups import image_group_id  # noqa: E402
 from evaluation.split import DEFAULT_DEV_FRACTION, DEFAULT_SEED, grouped_split  # noqa: E402
 from msrc.model import RiskCalibrator  # noqa: E402
 from msrc.signals import ALL_SIGNALS, Evidence, build_report  # noqa: E402
@@ -100,6 +101,12 @@ def main(argv=None) -> int:
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--n-bins", type=int, default=15)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--grouping", choices=("image_identity", "legacy_path"),
+                        default="image_identity",
+                        help="legacy_path is for reproducing historical reports only")
+    parser.add_argument("--pope-label-rule", choices=("archived", "official"),
+                        default="archived",
+                        help="relabel cached POPE answers with the released scorer")
     args = parser.parse_args(argv)
 
     rows = load_jsonl(Path(args.data).expanduser())
@@ -117,8 +124,18 @@ def main(argv=None) -> int:
         if not names:
             names = report.names()
         matrix.append(report.vector())
-        labels.append(int(row["label"]))
-        groups.append(str(row.get("image", row.get("id", ""))))
+        label = int(row["label"])
+        if args.pope_label_rule == "official":
+            from evaluation.datasets.pope import parse_yes_no_official
+            if str(row.get("dataset", "")).lower() != "pope":
+                raise SystemExit("--pope-label-rule official requires POPE records")
+            gold = row.get("gold_answers") or []
+            if len(gold) != 1 or str(gold[0]).lower() not in ("yes", "no"):
+                raise SystemExit("POPE record has no unambiguous yes/no reference")
+            label = int(parse_yes_no_official(row.get("answer", "")) != str(gold[0]).lower())
+        labels.append(label)
+        groups.append(image_group_id(row) if args.grouping == "image_identity"
+                      else str(row.get("image", row.get("id", ""))))
 
     # The family decides what the labels mean, so a mixed file cannot be reported
     # as either. Refusing is the only honest option: the two label rules disagree
@@ -132,7 +149,13 @@ def main(argv=None) -> int:
     family = next(iter(families))
     if family not in FAMILY_PROSE:
         raise SystemExit(f"unknown risk family in the evidence: {family!r}")
-    prose = FAMILY_PROSE[family]
+    prose = dict(FAMILY_PROSE[family])
+    if family == RISK_FACTUAL and all(str(row.get("dataset", "")).lower() == "pope" for row in rows):
+        prose["label_rule"] = ("标签：POPE物体存在性回答错误；" +
+                               ("使用官方答案解析规则" if args.pope_label_rule == "official"
+                                else "使用归档标签，解析版本以缓存为准"))
+    if family == RISK_SAFETY:
+        prose["is"] = "不安全响应的关键词未拒绝代理，不是经过场景裁判验证的内容违规"
 
     X = np.asarray(matrix, dtype=float)
     y = np.asarray(labels, dtype=int)
@@ -244,6 +267,8 @@ def main(argv=None) -> int:
 
     # ---- fit -------------------------------------------------------------
     calibrator = RiskCalibrator(l2=args.l2).fit(X[dev_mask], y[dev_mask])
+    if not calibrator.success_:
+        raise SystemExit("calibrator did not converge; no acceptance metrics reported")
     print("  fitted weights (largest first):")
     for row in calibrator.weights(names):
         print(f"    {row['signal']:26} {row['weight']:+.4f}")
@@ -273,7 +298,7 @@ def main(argv=None) -> int:
     print("=" * 84)
     print("指标 2.1  不确定性信号")
     print("=" * 84)
-    print(f"  定义 9 个；本次数据上实际产生有效值 {n_live} 个"
+    print(f"  总共定义 {len(ALL_SIGNALS)} 个，本族适用 {len(names)} 个；实际非恒定值 {n_live} 个"
           f"（内部 {n_live_internal} + 外部 {n_live - n_live_internal}）")
     print()
 
@@ -296,7 +321,7 @@ def main(argv=None) -> int:
         g = (b - a) / b if b > 0 else float("nan")
         print(f"      n_bins={n_bins:3}  {g:+.2%}")
     print()
-    for bar, label in ((0.10, "中期 >=10%"), (0.20, "验收 >=20%")):
+    for bar, label in ((0.10, "中期数值线 >=10%"), (0.20, "结题数值线 >=20%")):
         print(f"      {label}: {'达标' if gain >= bar else '未达'}")
     print()
 
@@ -310,8 +335,7 @@ def main(argv=None) -> int:
     print(f"    AUROC        = {rank:.4f}   {'>=0.85' if rank >= 0.85 else '<0.85'}")
     print(f"    accuracy     = {tm['accuracy']:.4f}   {'>=0.85' if tm['accuracy'] >= 0.85 else '<0.85'}")
     print(f"    precision    = {tm['precision']:.4f}")
-    print("    按 AUROC 口径：" + ("验收达标" if rank >= 0.85 else "未达验收线（中期线 0.75 " +
-          ("达标" if rank >= 0.75 else "未达") + "）"))
+    print("    AUROC是辅助排序指标，不等同预警Accuracy或实际场景验收。")
     print()
 
     print("=" * 84)
@@ -324,6 +348,10 @@ def main(argv=None) -> int:
     if args.json:
         print(json.dumps({
             "risk_family": family,
+            "grouping": args.grouping,
+            "pope_label_rule": args.pope_label_rule,
+            "calibrator_converged": calibrator.success_,
+            "calibrator_gradient_norm": calibrator.grad_norm_,
             "label_rule": prose["label_rule"],
             "label_uncertain_rate": label_uncertain_rate,
             "categories": {
@@ -337,6 +365,8 @@ def main(argv=None) -> int:
             "n_items": len(rows), "n_groups": int(len(unique)),
             "n_dev": int(dev_mask.sum()), "n_test": int(test_mask.sum()),
             "signals_defined": len(names), "signals_live": n_live,
+            "signals_defined_global": len(ALL_SIGNALS),
+            "positive_rate": float(y_test.mean()),
             "signals_live_internal": n_live_internal,
             "baseline_signal": best_name,
             "baseline_kind": best_kind,

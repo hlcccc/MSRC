@@ -101,7 +101,7 @@ def vqa_label(generated: str, gold_answers) -> int:
     return 0 if score >= 0.5 else 1
 
 
-def yes_no_label(generated: str, reference: str):
+def yes_no_label(generated: str, reference: str, *, parser: str = "legacy"):
     """Label a yes/no answer, and say whether it could be parsed at all.
 
     Returns ``(label, parsed)``. The label is 1 when the answer is wrong, which is
@@ -113,12 +113,50 @@ def yes_no_label(generated: str, reference: str):
     a correct one, and inventing a verdict for it would put a fabricated label into
     the fit.
     """
-    from evaluation.datasets.pope import parse_yes_no
+    from evaluation.datasets.pope import parse_yes_no, parse_yes_no_official
+
+    if parser == "pope_official":
+        return int(parse_yes_no_official(generated) != str(reference).strip().lower()), True
+    if parser != "legacy":
+        raise ValueError(f"unknown yes/no answer parser: {parser!r}")
 
     verdict = parse_yes_no(generated)
     if verdict is None:
         return 1, False
     return (0 if verdict == str(reference or "").strip().lower() else 1), True
+
+
+def cap_gpu_memory(fraction: float, *devices: str) -> None:
+    """Cap this process on each device it will use.
+
+    On a GPU that several people share, an uncapped job does not fail by itself
+    when it over-allocates -- it takes the memory somebody else's job is holding,
+    and the somebody else is the one whose run dies. Capping inverts that: our
+    allocation raises, our run stops, and the other job is untouched. It is the
+    difference between a wasted afternoon and somebody's ruined week, so it is
+    applied before a single weight is loaded.
+
+    ``fraction`` of 0 means no cap and is the default, so nothing changes for a
+    run that owns its device.
+    """
+    if fraction < 0 or fraction > 1:
+        raise SystemExit("--gpu-memory-fraction must be 0 (no cap) or within (0, 1]")
+    if fraction == 0:
+        return
+
+    import torch
+
+    for device in devices:
+        name = str(device or "")
+        if not name.startswith("cuda"):
+            continue
+        index = int(name.split(":", 1)[1]) if ":" in name else torch.cuda.current_device()
+        torch.cuda.set_per_process_memory_fraction(fraction, index)
+        total = torch.cuda.get_device_properties(index).total_memory
+        print(
+            f"[collect] device cuda:{index} capped at {fraction:.0%} of "
+            f"{total / 2**30:.1f} GiB = {fraction * total / 2**30:.1f} GiB"
+        )
 
 
 def safety_label(generated: str):
@@ -268,7 +306,17 @@ def main() -> int:
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--seed", type=int, default=20260920)
     parser.add_argument("--save-every", type=int, default=20)
+    parser.add_argument(
+        "--gpu-memory-fraction",
+        type=float,
+        default=0.0,
+        help="cap this process at a fraction of each device it touches, e.g. 0.25. "
+             "0 means no cap. Use it when the GPU is shared: the cap makes this "
+             "process raise instead of taking memory another user's job is holding",
+    )
     args = parser.parse_args()
+
+    cap_gpu_memory(args.gpu_memory_fraction, args.device, args.second_device)
 
     source = Path(args.data).expanduser()
     if not source.is_file():
@@ -291,12 +339,29 @@ def main() -> int:
                 row.get("image", ""),
                 row.get("question", ""))
 
+    keys = [resume_key(row) for row in records]
+    if len(set(keys)) != len(keys):
+        raise SystemExit("duplicate input item key (id, image, question); refusing collection")
+
     done = {}
     if out_path.exists():
         for row in load_jsonl(out_path):
             if row.get("evidence"):
-                done[resume_key(row)] = row
+                key = resume_key(row)
+                if key in done:
+                    raise SystemExit("duplicate cached item key; refusing ambiguous resume")
+                done[key] = row
         print(f"[collect] resuming: {len(done)} items already have evidence")
+
+    for record in records:
+        cached = done.get(resume_key(record))
+        if cached is None:
+            continue
+        for field in ("gold_answers", "answer_format", "answer_parser", "dataset", "split"):
+            if cached.get(field) != record.get(field):
+                raise SystemExit(f"cached {field} differs from input; use a new output file")
+        if cached["evidence"].get("risk_family", RISK_FACTUAL) != args.risk_family:
+            raise SystemExit("cached risk family differs from requested collection")
 
     provider = build_provider(args)
     second_provider = build_second_provider(args)
@@ -383,7 +448,9 @@ def main() -> int:
                     # experiment.
                     primary = provider.generate(image, question, do_sample=False)
                     answer = primary.text
-                    label, parsed = yes_no_label(answer, gold[0])
+                    label, parsed = yes_no_label(
+                        answer, gold[0], parser=record.get("answer_parser", "legacy")
+                    )
                     record["answer"] = answer
                     record["label"] = label
                     record["answer_parsed"] = parsed

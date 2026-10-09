@@ -47,7 +47,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from evaluation.datasets.images import write_image
 
-__all__ = ["SPLITS", "build_records", "parse_yes_no", "write_jsonl"]
+__all__ = ["SPLITS", "build_records", "parse_yes_no", "parse_yes_no_official", "write_jsonl"]
 
 #: The three released splits, easiest first.
 SPLITS = ("random", "popular", "adversarial")
@@ -70,7 +70,7 @@ def _first_present(row: Dict[str, Any], keys: Iterable[str]) -> Optional[Any]:
 def parse_yes_no(response: str) -> Optional[str]:
     """``"yes"``, ``"no"``, or ``None`` if the response says neither.
 
-    The benchmark's own parsing: the **first** standalone yes or no decides,
+    Legacy MSRC parsing, NOT the released POPE scorer: the **first** yes/no decides,
     case-insensitively. "Yes, there is a snowboard" is a yes; "No, there is no
     snowboard" is a no -- the second word there is also "no", so a rule that
     scanned for either word anywhere would get the first case right and the second
@@ -85,6 +85,18 @@ def parse_yes_no(response: str) -> Optional[str]:
     text = str(response or "").lower()
     match = re.search(r"\b(yes|no)\b", text)
     return match.group(1) if match else None
+
+
+def parse_yes_no_official(response: str) -> str:
+    """Reproduce RUCAIBox/POPE evaluate.py at commit 08d957b917e5.
+
+    Only the first sentence is inspected. After commas are removed, any exact
+    ``No``, ``no`` or ``not`` token means no; otherwise the scorer returns yes.
+    Case and the empty-response default are deliberate compatibility details.
+    """
+    first_sentence = str(response or "").split(".", 1)[0].replace(",", "")
+    words = first_sentence.split(" ")
+    return "no" if any(token in words for token in ("No", "no", "not")) else "yes"
 
 
 def build_records(
@@ -170,13 +182,15 @@ def build_records(
                 continue
 
             records.append({
-                "id": f"pope:{stem}:{source}",
+                "id": f"pope:{stem}:{source}:{parquet.name}:{index}",
+                "source_image_id": source,
                 "question": str(question),
                 "image": image_path,
                 "dataset": "POPE",
                 "split": stem,
                 "gold_answers": [reference_text],
                 "answer_format": "yes_no",
+                "answer_parser": "pope_official",
             })
             if limit is not None and len(records) >= limit:
                 return records

@@ -92,7 +92,8 @@ class MSRCPipeline:
         self.prompts = prompts or PromptSet()
         self.calibrator = calibrator
         self.fusion = fusion
-        self.fitted_ = calibrator is not None and calibrator.coef_ is not None
+        self.fitted_ = (calibrator is not None and calibrator.coef_ is not None
+                        and calibrator.success_)
         self.fit_warnings: List[str] = []
         self.provenance: Dict[str, Any] = {}
         #: Fixed signal order. Frozen at fit time and stored with the scorer so a
@@ -164,7 +165,9 @@ class MSRCPipeline:
         y = np.asarray(labels, dtype=np.int64)
 
         self.calibrator = RiskCalibrator(l2=self.config.l2).fit(X, y)
-        self.fitted_ = self.calibrator.coef_ is not None
+        self.fitted_ = self.calibrator.coef_ is not None and self.calibrator.success_
+        if not self.fitted_:
+            raise RuntimeError("calibrator did not converge; refusing to export a fitted scorer")
 
         constant = [n for i, n in enumerate(self.signal_names)
                     if float(np.ptp(X[:, i])) <= 1e-12]
@@ -231,7 +234,9 @@ class MSRCPipeline:
 
         self.signal_names = list(signal_names)
         self.calibrator = RiskCalibrator(l2=self.config.l2).fit(X, y)
-        self.fitted_ = self.calibrator.coef_ is not None
+        self.fitted_ = self.calibrator.coef_ is not None and self.calibrator.success_
+        if not self.fitted_:
+            raise RuntimeError("calibrator did not converge; refusing to export a fitted scorer")
 
         constant = [n for i, n in enumerate(self.signal_names)
                     if float(np.ptp(X[:, i])) <= 1e-12]

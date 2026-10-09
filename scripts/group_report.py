@@ -33,6 +33,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from evaluation.metrics import auroc, brier, threshold_metrics  # noqa: E402
+from evaluation.groups import image_group_id  # noqa: E402
 from evaluation.split import DEFAULT_DEV_FRACTION, DEFAULT_SEED, grouped_split  # noqa: E402
 from msrc.model import RiskCalibrator  # noqa: E402
 from msrc.signals import Evidence, build_report  # noqa: E402
@@ -120,7 +121,7 @@ def load_evidence(path: Path, group_by: str):
         report = build_report(Evidence.from_dict(row["evidence"]))
         matrix.append(report.vector())
         labels.append(int(row["label"]))
-        groups.append(str(row.get("image", row.get("id", ""))))
+        groups.append(image_group_id(row))
         keys.append(str(row.get(group_by, "?")))
     return (
         np.asarray(matrix, dtype=float),

@@ -268,6 +268,9 @@ class FusionHead:
             return self
 
         candidate = RidgeLogistic(l2=self.inner.l2).fit(X, labels)
+        if not candidate.success_:
+            self.refused_reason = "fusion calibrator did not converge; head not fitted"
+            return self
         base_weight = float(candidate.coef_[1]) if candidate.coef_ is not None else 0.0
         if base_weight < 0.0:
             self.refused_reason = (
