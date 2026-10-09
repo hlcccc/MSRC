@@ -58,6 +58,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from msrc.judge import classify_refusal  # noqa: E402
+from msrc.gpu import cap_gpu_memory  # noqa: E402,F401  (re-exported: see msrc/gpu.py)
 from msrc.provider import PromptSet, gather_evidence  # noqa: E402
 from msrc.signals import Evidence, normalize_text  # noqa: E402
 from msrc.types import RISK_FACTUAL, RISK_SAFETY  # noqa: E402
@@ -124,39 +125,6 @@ def yes_no_label(generated: str, reference: str, *, parser: str = "legacy"):
     if verdict is None:
         return 1, False
     return (0 if verdict == str(reference or "").strip().lower() else 1), True
-
-
-def cap_gpu_memory(fraction: float, *devices: str) -> None:
-    """Cap this process on each device it will use.
-
-    On a GPU that several people share, an uncapped job does not fail by itself
-    when it over-allocates -- it takes the memory somebody else's job is holding,
-    and the somebody else is the one whose run dies. Capping inverts that: our
-    allocation raises, our run stops, and the other job is untouched. It is the
-    difference between a wasted afternoon and somebody's ruined week, so it is
-    applied before a single weight is loaded.
-
-    ``fraction`` of 0 means no cap and is the default, so nothing changes for a
-    run that owns its device.
-    """
-    if fraction < 0 or fraction > 1:
-        raise SystemExit("--gpu-memory-fraction must be 0 (no cap) or within (0, 1]")
-    if fraction == 0:
-        return
-
-    import torch
-
-    for device in devices:
-        name = str(device or "")
-        if not name.startswith("cuda"):
-            continue
-        index = int(name.split(":", 1)[1]) if ":" in name else torch.cuda.current_device()
-        torch.cuda.set_per_process_memory_fraction(fraction, index)
-        total = torch.cuda.get_device_properties(index).total_memory
-        print(
-            f"[collect] device cuda:{index} capped at {fraction:.0%} of "
-            f"{total / 2**30:.1f} GiB = {fraction * total / 2**30:.1f} GiB"
-        )
 
 
 def safety_label(generated: str):

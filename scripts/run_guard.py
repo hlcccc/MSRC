@@ -108,7 +108,7 @@ def main() -> int:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         if args.gpu_memory_fraction:
-            from scripts.collect_evidence import cap_gpu_memory
+            from msrc.gpu import cap_gpu_memory
             cap_gpu_memory(args.gpu_memory_fraction, args.device)
 
         tok = AutoTokenizer.from_pretrained(args.model_path, padding_side="left")

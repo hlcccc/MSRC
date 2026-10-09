@@ -24,6 +24,7 @@ from msrc.conformal import (
     selective_report,
 )
 from msrc.dual import DualRisk, DualRiskScorer
+from msrc.gpu import cap_gpu_memory
 from msrc.model import FusionHead, RiskCalibrator, RidgeLogistic
 from msrc.pipeline import DEFAULT_THRESHOLD, MSRCConfig, MSRCPipeline
 from msrc.provider import ModelProvider, PromptSet, StubProvider, gather_evidence
@@ -67,6 +68,7 @@ __all__ = [
     "RiskRequest",
     "RiskResult",
     "RidgeLogistic",
+    "cap_gpu_memory",
     "SIGNAL_EXTERNAL",
     "SIGNAL_INTERNAL",
     "SIGNAL_NAMES",
