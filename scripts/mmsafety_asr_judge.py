@@ -198,7 +198,11 @@ def judge_one(rows, out_path, tok, model, torch, args):
                 [{"role": "user", "content": prompts[i]}],
                 tokenize=False, add_generation_prompt=True) for i in todo]
             enc = tok(texts, return_tensors="pt", padding=True,
-                      truncation=True, max_length=3072).to(args.device)
+                      truncation=True, max_length=3072)
+            # With an offloaded model the inputs have to be placed by hand: there is
+            # no single device to name, and accelerate dispatches from wherever the
+            # first layer sits.
+            enc = {k: v.to(model.device) for k, v in enc.items()}
             with torch.no_grad():
                 gen = model.generate(**enc, max_new_tokens=args.max_new_tokens,
                                      do_sample=False,
@@ -252,15 +256,48 @@ def main() -> int:
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--max-new-tokens", type=int, default=8)
     ap.add_argument("--device", default="cuda:0")
+    ap.add_argument("--gpu-gib", type=int, default=0,
+                    help="with --offload: hard cap on the GPU, in GiB. The rest of "
+                         "the model goes to host memory.")
+    ap.add_argument("--cpu-gib", type=int, default=64,
+                    help="with --offload: cap on host memory for the model")
+    ap.add_argument("--offload", action="store_true",
+                    help="split the judge between the GPU and host memory instead of "
+                         "requiring it to fit. The judge is 57 GB; on a shared machine "
+                         "the GPU is often busy with someone else's job and only 30 GB "
+                         "or so is free, which is not enough to load it whole. This is "
+                         "a 30B mixture of experts with 3B active parameters, so the "
+                         "cost is mostly weight streaming and it stays usable.")
     args = ap.parse_args()
+
+    import os
+
+    if args.offload:
+        # Pin to the one device, before torch initialises. `device_map="auto"`
+        # respects `max_memory` and spills the remainder to host RAM, but "auto"
+        # would also be free to take a *second* card -- and on a shared machine the
+        # second card is somebody else's training. Hiding it is what makes "auto"
+        # safe here.
+        index = args.device.split(":")[-1] if ":" in args.device else "0"
+        os.environ["CUDA_VISIBLE_DEVICES"] = index
 
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     # load the judge once and reuse it for every file: it is 57 GB on disk
     tok = AutoTokenizer.from_pretrained(args.model_path, padding_side="left")
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_path, torch_dtype=torch.bfloat16, device_map=args.device)
+    if args.offload:
+        gpu = args.gpu_gib or 26
+        print("[judge] offloading: max_memory = {0: '%dGiB', 'cpu': '%dGiB'}"
+              % (gpu, args.cpu_gib), flush=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_path, torch_dtype=torch.bfloat16,
+            device_map="auto",
+            max_memory={0: "%dGiB" % gpu, "cpu": "%dGiB" % args.cpu_gib},
+            low_cpu_mem_usage=True)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_path, torch_dtype=torch.bfloat16, device_map=args.device)
     model.eval()
     print("[judge] model loaded", flush=True)
 
