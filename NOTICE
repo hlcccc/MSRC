@@ -38,3 +38,24 @@ The method is assembled from published work and the provenance is recorded in
 `msrc/signals.py` and the README. Those citations are to papers and techniques,
 not to redistributed code: no source from SelfCheckGPT, Semantic Entropy,
 LLM-Check, SAPLMA or any other project is vendored here.
+
+Vendored source
+---------------
+
+One third-party file is redistributed, and it is the only one:
+
+  references/m4c_evaluator.py
+
+  The answer processor and accuracy evaluator used for TextVQA. It carries
+  Facebook's original copyright header and its own note that the processor was
+  copied from `facebookresearch/mmf` at commit c46b3b3391275b4181567db80943473a89ab98ab.
+  It is vendored for one reason: indicator 2.2 is reported with the official
+  TextVQA soft accuracy, and computing that must not depend on a network fetch at
+  evaluation time. A short provenance note was added above the copyright header;
+  nothing below it was edited.
+
+  This repository's Apache-2.0 licence does not extend to that file. Its terms are
+  the upstream project's terms, which are not restated here because they were not
+  verified when the file was added -- check `facebookresearch/mmf` before relying
+  on it. Nothing else in this repository is derived from it, and the framework
+  runs without it: TextVQA soft accuracy is the only thing that needs it.
