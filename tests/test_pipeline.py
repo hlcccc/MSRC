@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from msrc import MSRCConfig, MSRCPipeline, Sample, StubProvider  # noqa: E402
 from msrc.model import FusionHead, RiskCalibrator, RidgeLogistic  # noqa: E402
-from msrc.types import RISK_FACTUAL, RISK_SAFETY  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -142,8 +141,7 @@ def _fit(pipe, records):
     for rec in records:
         ev, _ = gather_evidence(
             pipe.provider, rec["question"], rec["answer"], rec["image"],
-            risk_family=pipe.config.risk_family, k=pipe.config.k,
-            prompts=pipe.prompts, primary_sample=rec["_primary"],
+            k=pipe.config.k, prompts=pipe.prompts, primary_sample=rec["_primary"],
         )
         # Through the pipeline so the signal order is fixed on it, exactly as the
         # live fit() path does.
@@ -199,25 +197,12 @@ def test_the_signal_set_is_pinned_between_fit_and_score():
         pipe.score("q", "Flickr", "/i.jpg")
 
 
-def test_the_safety_family_swaps_the_family_specific_signal():
-    factual = MSRCPipeline(provider=StubProvider(), config=MSRCConfig(risk_family=RISK_FACTUAL))
-    safety = MSRCPipeline(provider=StubProvider(), config=MSRCConfig(risk_family=RISK_SAFETY))
-    from msrc.signals import ALL_SIGNALS
-
-    f_names = [s.name for s in ALL_SIGNALS if s.applies_to(RISK_FACTUAL)]
-    s_names = [s.name for s in ALL_SIGNALS if s.applies_to(RISK_SAFETY)]
-    assert "grounding_check" in f_names and "grounding_check" not in s_names
-    assert "policy_probe" in s_names and "policy_probe" not in f_names
-    assert factual.config.risk_family != safety.config.risk_family
-
-
 def test_provenance_records_what_was_fitted():
     pipe = _pipeline()
     _fit(pipe, _records())
     assert pipe.provenance["n_signals"] == 8
     assert pipe.provenance["n_internal_signals"] == 3
     assert pipe.provenance["provider"] == "stub"
-    assert pipe.provenance["risk_family"] == RISK_FACTUAL
 
 
 def test_scorer_round_trips_through_json(tmp_path):

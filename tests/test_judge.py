@@ -1,4 +1,8 @@
-"""Refusal classification: the safety family's label rule, and its limits."""
+"""Refusal classification: the content-safety label rule, and its limits.
+
+Kept because the content-safety work that moved out of this repository labels with
+it, and a label rule that is not pinned is a label rule nobody can reproduce.
+"""
 
 from __future__ import annotations
 

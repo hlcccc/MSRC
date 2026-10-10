@@ -8,8 +8,8 @@ outlived ten pushes.
 
 Two things are asserted here so it cannot come back:
 
-* ``signal_names_for`` really is the list a report carries for a family. If the
-  two ever drift, fitting from a prebuilt matrix breaks again.
+* ``SIGNAL_NAMES`` really is the list a report carries. If the two ever drift,
+  fitting from a prebuilt matrix breaks again.
 * the NumPy-only example runs, since that is the artefact the job invokes.
 """
 
@@ -28,41 +28,33 @@ sys.path.insert(0, str(ROOT))
 from msrc import (  # noqa: E402
     MSRCConfig,
     MSRCPipeline,
+    SIGNAL_NAMES,
     StubProvider,
     gather_evidence,
-    signal_names_for,
 )
-from msrc.signals import build_report  # noqa: E402
-from msrc.types import RISK_FACTUAL, RISK_FAMILIES, RISK_SAFETY  # noqa: E402
+from msrc.signals import ALL_SIGNALS, build_report  # noqa: E402
 
 
-@pytest.mark.parametrize("family", RISK_FAMILIES)
-def test_signal_names_for_matches_what_a_report_carries(family):
+def test_signal_names_matches_what_a_report_carries():
     """The helper must agree with the pipeline, not just with the signal list."""
     evidence, _ = gather_evidence(
         StubProvider(ocr_text="Flickr"),
         "q",
         "Flickr",
         "/i.jpg",
-        risk_family=family,
         k=2,
     )
-    assert build_report(evidence).names() == signal_names_for(family)
+    assert build_report(evidence).names() == list(SIGNAL_NAMES)
 
 
-def test_each_family_names_its_declared_signals():
-    """The README's inventory, asserted against the code rather than the prose.
-
-    The two families are deliberately asymmetric now: `guard_model` judges whether a
-    response is harmful, which is a safety question with no factual counterpart.
-    """
-    counts = {RISK_FACTUAL: 8, RISK_SAFETY: 4}
-    for family in RISK_FAMILIES:
-        names = signal_names_for(family)
-        assert len(names) == counts[family], (family, names)
-        single = [n for n in names if n != "cross_model_agreement"]
-        dropped = 1 if "cross_model_agreement" in names else 0
-        assert len(single) == counts[family] - dropped, (family, single)
+def test_the_declared_inventory_is_eight_signals_three_of_them_internal():
+    """The README's inventory, asserted against the code rather than the prose."""
+    assert len(SIGNAL_NAMES) == 8, SIGNAL_NAMES
+    assert [s.name for s in ALL_SIGNALS] == list(SIGNAL_NAMES)
+    internal = [s.name for s in ALL_SIGNALS if s.kind == "internal"]
+    assert len(internal) == 3, internal
+    single = [n for n in SIGNAL_NAMES if n != "cross_model_agreement"]
+    assert len(single) == 7, single
 
 
 def test_fitting_on_invented_names_is_refused_at_scoring_time():
@@ -81,7 +73,7 @@ def test_fitting_on_invented_names_is_refused_at_scoring_time():
 def test_the_example_scoring_path_survives_a_second_call():
     """Fit once, score twice: the second call is where a column mismatch lands."""
     rng = np.random.default_rng(0)
-    names = signal_names_for(RISK_FACTUAL)
+    names = list(SIGNAL_NAMES)
     X = rng.normal(size=(200, len(names)))
     y = (X[:, 0] + X[:, 1] > 0).astype(int)
 
@@ -103,12 +95,3 @@ def test_the_numpy_only_example_runs():
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "numpy alone" in completed.stdout
-
-
-def test_signal_names_for_rejects_an_unknown_family_by_returning_nothing():
-    """An unknown family is not an error here -- it simply has no signals, and
-    grounding_check/policy_probe are what make the two known families differ."""
-    assert signal_names_for("not-a-family") == []
-    assert "grounding_check" in signal_names_for(RISK_FACTUAL)
-    assert "grounding_check" not in signal_names_for(RISK_SAFETY)
-    assert "policy_probe" in signal_names_for(RISK_SAFETY)

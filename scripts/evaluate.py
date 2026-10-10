@@ -17,18 +17,9 @@ What it reports
    different questions and the task book's wording ("准确率") is a threshold
    quantity while the natural thing to quote is AUROC.
 
-Which numbers those are depends on the risk family, and both are reported the same
-way:
-
-* ``factual`` -- the label is "the answer contradicts the image", from the VQA
-  agreement rule. The score is a hallucination warning.
-* ``safety`` -- the label is "the model did not refuse", from :mod:`msrc.judge`.
-  The score is an unsafe-response warning, and the report carries the rate at which
-  the refusal rule was unsure of itself, because that rate bounds how much of the
-  label is a judgement rather than an observation.
-
-The family is read from the evidence rather than passed in, so a report cannot
-describe the wrong one.
+The label is "the answer contradicts the image", from the VQA agreement rule, and
+the score is a hallucination warning. Content-safety risk is a different question
+with a different label; it is not reported here.
 """
 
 from __future__ import annotations
@@ -48,23 +39,15 @@ from evaluation.groups import image_group_id  # noqa: E402
 from evaluation.split import DEFAULT_DEV_FRACTION, DEFAULT_SEED, grouped_split  # noqa: E402
 from msrc.model import RiskCalibrator  # noqa: E402
 from msrc.signals import ALL_SIGNALS, Evidence, build_report  # noqa: E402
-from msrc.types import RISK_FACTUAL, RISK_SAFETY, SIGNAL_INTERNAL  # noqa: E402
+from msrc.types import RISK_FACTUAL, SIGNAL_INTERNAL  # noqa: E402
 
 #: The last section of the report. What the number is, and what it is not -- the
 #: second half matters more, because a calibrated risk score is easy to over-read.
-FAMILY_PROSE = {
-    RISK_FACTUAL: {
-        "title": "指标 2.3  高风险预警",
-        "is": "事实性风险（回答与图像矛盾）的排序与校准质量",
-        "is_not": "内容安全（政治敏感 / 违规）判定 —— 那需要另一套标签和政策口径",
-        "label_rule": "标签：回答与参考回答不一致（VQA 一致度 < 0.5 记为风险）",
-    },
-    RISK_SAFETY: {
-        "title": "指标 2.3  高风险预警（不安全响应）",
-        "is": "不安全响应的排序与校准质量：模型没有拒绝有害请求",
-        "is_not": "对模型整体安全能力的评价 —— 这只覆盖所测类别与提示方式",
-        "label_rule": "标签：msrc.judge 关键词拒绝判定（未拒绝记为风险）",
-    },
+PROSE = {
+    "title": "指标 2.3  高风险预警",
+    "is": "事实性风险（回答与图像矛盾）的排序与校准质量",
+    "is_not": "内容安全（政治敏感 / 违规）判定 —— 那需要另一套标签和政策口径",
+    "label_rule": "标签：回答与参考回答不一致（VQA 一致度 < 0.5 记为风险）",
 }
 
 
@@ -117,10 +100,8 @@ def main(argv=None) -> int:
     # ---- signal matrix -------------------------------------------------
     names: list = []
     matrix, labels, groups = [], [], []
-    families = Counter()
     for row in rows:
         report = build_report(Evidence.from_dict(row["evidence"]))
-        families[str(row["evidence"].get("risk_family", RISK_FACTUAL))] += 1
         if not names:
             names = report.names()
         matrix.append(report.vector())
@@ -137,25 +118,11 @@ def main(argv=None) -> int:
         groups.append(image_group_id(row) if args.grouping == "image_identity"
                       else str(row.get("image", row.get("id", ""))))
 
-    # The family decides what the labels mean, so a mixed file cannot be reported
-    # as either. Refusing is the only honest option: the two label rules disagree
-    # about what 1 means.
-    if len(families) > 1:
-        raise SystemExit(
-            f"the evidence mixes risk families: {dict(families)}\n"
-            "  A factual label and a safety label are not the same quantity. "
-            "Evaluate them separately."
-        )
-    family = next(iter(families))
-    if family not in FAMILY_PROSE:
-        raise SystemExit(f"unknown risk family in the evidence: {family!r}")
-    prose = dict(FAMILY_PROSE[family])
-    if family == RISK_FACTUAL and all(str(row.get("dataset", "")).lower() == "pope" for row in rows):
+    prose = dict(PROSE)
+    if all(str(row.get("dataset", "")).lower() == "pope" for row in rows):
         prose["label_rule"] = ("标签：POPE物体存在性回答错误；" +
                                ("使用官方答案解析规则" if args.pope_label_rule == "official"
                                 else "使用归档标签，解析版本以缓存为准"))
-    if family == RISK_SAFETY:
-        prose["is"] = "不安全响应的关键词未拒绝代理，不是经过场景裁判验证的内容违规"
 
     X = np.asarray(matrix, dtype=float)
     y = np.asarray(labels, dtype=int)
@@ -185,9 +152,7 @@ def main(argv=None) -> int:
                 f"  Every item is labelled {int(y[0])}, so there is nothing to rank and\n"
                 "  nothing to calibrate: AUROC needs a negative and a positive example,\n"
                 "  and a calibrator fitted on one class learns a constant.\n"
-                "  This is an outcome about the data, not a bug in the split. For the\n"
-                "  safety family it usually means the model refused everything, or\n"
-                "  nothing -- the refusal rule only separates models that do both."
+                "  This is an outcome about the data, not a bug in the split."
             )
         raise SystemExit(
             f"the {side} side of the split has a single class: {counts}\n"
@@ -199,37 +164,15 @@ def main(argv=None) -> int:
     print("=" * 84)
     print("MSRC evaluation")
     print("=" * 84)
-    print(f"  risk family      : {family}")
+    print(f"  risk             : {RISK_FACTUAL}")
     print(f"  {prose['label_rule']}")
     print(f"  items            : {len(rows)}  over {len(unique)} groups (images)")
     print(f"  dev / test       : {int(dev_mask.sum())} / {int(test_mask.sum())}")
     print(f"  positive rate    : dev {y[dev_mask].mean():.3%}   test {y[test_mask].mean():.3%}")
     print()
 
-    # For the safety family the label is a keyword judgement, not an observation.
-    # How often that judgement was unsure is part of the result, so it is printed
-    # before any number computed from it.
-    label_uncertain_rate = None
-    if family == RISK_SAFETY:
-        verdicts = [r.get("refusal") for r in rows if isinstance(r.get("refusal"), dict)]
-        if verdicts:
-            unsure = sum(1 for v in verdicts if not v.get("certain", True))
-            empty = sum(1 for v in verdicts if v.get("empty_response"))
-            label_uncertain_rate = unsure / len(verdicts)
-            print(f"  标签可靠性       : 拒绝判定不确定 {unsure}/{len(verdicts)} "
-                  f"({label_uncertain_rate:.1%})")
-            if empty:
-                print(f"                     其中空回答 {empty} 条（记为未拒绝）")
-            print("                     这个比例是标签本身的不确定度，"
-                  "下方的数都建立在其之上")
-            print()
-        else:
-            print("  标签可靠性       : 记录里没有 refusal 判定，"
-                  "无法报告标签不确定度（旧格式？）")
-            print()
-
-    # Categories, when the dataset has them. A safety result that covers thirteen
-    # harm categories should say so, and a reader looking for one in particular --
+    # Categories, when the dataset has them. A result that covers thirteen harm
+    # categories should say so, and a reader looking for one in particular --
     # political content, say -- should be able to find it without opening the JSONL.
     # Per-category AUROC is deliberately not reported: at twenty items a category it
     # would be noise presented as a finding.
@@ -347,13 +290,12 @@ def main(argv=None) -> int:
 
     if args.json:
         print(json.dumps({
-            "risk_family": family,
+            "risk": RISK_FACTUAL,
             "grouping": args.grouping,
             "pope_label_rule": args.pope_label_rule,
             "calibrator_converged": calibrator.success_,
             "calibrator_gradient_norm": calibrator.grad_norm_,
             "label_rule": prose["label_rule"],
-            "label_uncertain_rate": label_uncertain_rate,
             "categories": {
                 category: {
                     "n": len(values),

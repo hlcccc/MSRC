@@ -15,7 +15,6 @@ from msrc.signals import (  # noqa: E402
     Evidence,
     GroundingCheck,
     OutputEntropy,
-    PolicyProbe,
     ResampleConsistency,
     SelfConsistency,
     SequenceConfidence,
@@ -27,8 +26,6 @@ from msrc.signals import (  # noqa: E402
     normalize_text,
 )
 from msrc.types import (  # noqa: E402
-    RISK_FACTUAL,
-    RISK_SAFETY,
     SIGNAL_EXTERNAL,
     SIGNAL_INTERNAL,
     Sample,
@@ -43,64 +40,21 @@ from msrc.types import (  # noqa: E402
 def test_the_signal_inventory_is_what_the_readme_claims():
     external = [s for s in ALL_SIGNALS if s.kind == SIGNAL_EXTERNAL]
     internal = [s for s in ALL_SIGNALS if s.kind == SIGNAL_INTERNAL]
-    assert len(external) == 9, [s.name for s in external]
+    assert len(external) == 5, [s.name for s in external]
     assert len(internal) == 3, [s.name for s in internal]
 
 
-#: How many signals apply to each family, and how many of those run with one model.
-#: The two families are no longer symmetric: `guard_model` is a safety judgement on
-#: the response and means nothing for a hallucination, so it applies to safety only.
-#: Stating the numbers here rather than asserting "8 everywhere" is the point --
-#: an inventory that silently drifts is exactly what this file exists to catch.
-FAMILY_COUNTS = {
-    RISK_FACTUAL: {"applied": 8, "single_model": 7},
-    RISK_SAFETY: {"applied": 4, "single_model": 4},
-}
+def test_the_declared_inventory_is_exactly_the_eight_signals():
+    """Named, and in the order that fixes the fitted matrix's columns.
 
-
-@pytest.mark.parametrize("family", sorted(FAMILY_COUNTS))
-def test_each_family_gets_its_declared_signal_count(family):
-    """The distinction that matters for the readme's claim is what *runs*:
-    one of the applied signals needs a second model attached."""
-    want = FAMILY_COUNTS[family]
-    applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
-    assert len(applied) == want["applied"], [s.name for s in applied]
-    internal = sum(1 for s in applied if s.kind == SIGNAL_INTERNAL)
-    assert internal == (3 if family == RISK_FACTUAL else 0)
-
-    single_model = [s for s in applied if s.name != "cross_model_agreement"]
-    assert len(single_model) == want["single_model"]
-    assert sum(1 for s in single_model if s.kind == SIGNAL_EXTERNAL) == want["single_model"] - internal
-
-
-def test_no_signal_is_shared_between_the_families():
-    """The instruction, as an assertion: the two detectors use their own signals.
-
-    Seven of the safety family's nine columns used to be the hallucination
-    signals with one column swapped, and every one of them separated the safety
-    classes by less than 0.08. A column that carries no information about the
-    question costs a parameter the development half cannot afford.
+    The order is part of the contract: a fitted scorer's coefficients are applied
+    positionally, so a reordering is only visible as a wrong number.
     """
-    f = {s.name for s in ALL_SIGNALS if s.applies_to(RISK_FACTUAL)}
-    s = {s.name for s in ALL_SIGNALS if s.applies_to(RISK_SAFETY)}
-    assert not (f & s), f & s
-
-
-def test_the_guard_signal_is_a_safety_judgement_and_applies_only_there():
-    """A response being harmful says nothing about whether it matches the image."""
-    guard = next(s for s in ALL_SIGNALS if s.name == "guard_model")
-    assert guard.applies_to(RISK_SAFETY)
-    assert not guard.applies_to(RISK_FACTUAL)
-
-
-def test_the_two_guard_channels_are_separate_signals():
-    """`policy_probe` (the model judging itself) and `guard_model` (a model trained
-    for the judgement) are different measurements. Merging them would stop the
-    calibrator weighting them differently, which is the whole reason to have both."""
-    names = [s.name for s in ALL_SIGNALS]
-    assert "policy_probe" in names
-    assert "guard_model" in names
-    assert names.index("policy_probe") != names.index("guard_model")
+    assert [s.name for s in ALL_SIGNALS] == [
+        "self_consistency", "resample_consistency", "typed_verification",
+        "cross_model_agreement", "grounding_check", "sequence_confidence",
+        "output_entropy", "visual_attention",
+    ]
 
 
 def test_only_one_signal_needs_a_second_model():
@@ -215,18 +169,6 @@ def test_cross_model_signal_is_unavailable_without_a_second_model():
     assert value.available is False
 
 
-def test_policy_probe_only_applies_to_the_safety_family():
-    probe = PolicyProbe()
-    assert probe.applies_to(RISK_SAFETY)
-    assert not probe.applies_to(RISK_FACTUAL)
-
-
-def test_grounding_only_applies_to_the_factual_family():
-    check = GroundingCheck()
-    assert check.applies_to(RISK_FACTUAL)
-    assert not check.applies_to(RISK_SAFETY)
-
-
 def test_unavailable_signals_enter_the_vector_as_zero_but_are_named():
     """External evidence present, internals and the second model absent.
 
@@ -336,15 +278,6 @@ def test_resample_needs_at_least_two_samples():
     assert value.available is False
 
 
-def test_policy_probe_counts_violations():
-    signal = PolicyProbe()
-    clean = Evidence(question="q", answer="a", policy_verdicts=[Sample(text="safe")])
-    dirty = Evidence(question="q", answer="a",
-                     policy_verdicts=[Sample(text="unsafe: violence"), Sample(text="unsafe: hate")])
-    assert signal.compute(clean).risk == pytest.approx(0.0)
-    assert signal.compute(dirty).risk == pytest.approx(1.0)
-
-
 # ---------------------------------------------------------------------------
 # The invariant itself
 # ---------------------------------------------------------------------------
@@ -353,14 +286,13 @@ def test_policy_probe_counts_violations():
 def test_every_signal_returns_a_risk_in_the_unit_interval(signal):
     """Every signal, on every branch, must satisfy the contract."""
     rich = Evidence(
-        question="q", answer="Flickr", risk_family=RISK_SAFETY,
+        question="q", answer="Flickr",
         primary=Sample(text="Flickr", sequence_confidence=0.9, sequence_entropy=0.3,
                        visual_attention_mass=0.5),
         views=[Sample(text="Flickr")],
         resamples=[Sample(text="Flickr"), Sample(text="Nikon")],
         verifications=[Sample(text="yes")],
         cross_model=[Sample(text="Flickr")],
-        policy_verdicts=[Sample(text="safe")],
         ocr_texts=["Flickr"],
     )
     for evidence in (rich, Evidence(question="q", answer="a")):

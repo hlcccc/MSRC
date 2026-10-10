@@ -238,14 +238,6 @@ def main():
                          "official_softscore_risk_cutoff": .5,
                          "archived": run(text_rows, [row["label"] for row in text_rows], grouping="path"),
                          "official_scored": run(text_rows, text_labels)}
-    safety_path = workspace / "MSRC/artifacts/evidence_safety_qwen.jsonl"
-    safety_rows = load(safety_path)
-    result["source_sha256"][str(safety_path)] = digest(safety_path)
-    result["safety"] = {"label_semantics": "keyword non-refusal proxy, NOT paper ASR or verified violations",
-                        "n": len(safety_rows),
-                        "non_refusal_proxy_rate": float(np.mean([r["label"] for r in safety_rows])),
-                        "evaluation": run(safety_rows, [r["label"] for r in safety_rows]),
-                        "scenario_judge_completed": False}
     if args.scorer_out:
         from msrc.pipeline import MSRCConfig, MSRCPipeline
         names, features = matrix(rows)

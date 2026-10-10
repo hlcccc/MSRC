@@ -15,8 +15,8 @@ calling it; running this script in a full environment proves nothing.
 One trap it exists to catch: a pipeline fitted through ``fit_from_signals``
 remembers the signal names it was fitted on and refuses to score a different set.
 Fitting on invented column names therefore fails at scoring time, not at fit
-time, which is the wrong moment to find out. ``signal_names_for`` is the list to
-use, and this script is what keeps that honest.
+time, which is the wrong moment to find out. ``SIGNAL_NAMES`` is the list to use,
+and this script is what keeps that honest.
 """
 
 from __future__ import annotations
@@ -28,15 +28,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
 
-from msrc import MSRCConfig, MSRCPipeline, StubProvider, signal_names_for  # noqa: E402
+from msrc import MSRCConfig, MSRCPipeline, SIGNAL_NAMES, StubProvider  # noqa: E402
 from msrc.model import RiskCalibrator  # noqa: E402
-from msrc.types import RISK_FACTUAL  # noqa: E402
 
 
 def main() -> int:
     rng = np.random.default_rng(0)
 
-    names = signal_names_for(RISK_FACTUAL)
+    names = list(SIGNAL_NAMES)
     assert len(names) == 8, names
 
     # The calibrator on its own is a plain NumPy logistic fit.

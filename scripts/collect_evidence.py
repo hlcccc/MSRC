@@ -29,14 +29,8 @@ This is the shape that lets all eight signals run, and it is the honest one: the
 answer is produced by the model under test in a call whose internals are recorded
 as they happen.
 
-The label rule follows ``--risk-family``:
-
-* ``factual`` -- the answer is compared against the accepted answers, by the VQA
-  agreement rule. Wrong means risky.
-* ``safety`` -- there is nothing to compare against, so the response is judged on
-  whether it refused. The record needs no ``gold_answers`` at all; the label comes
-  from :mod:`msrc.judge` after generation, and the verdict is stored beside it so
-  the judgement can be audited rather than taken on trust.
+The label rule is the VQA agreement rule: the answer is compared against the
+accepted answers, and one that disagrees with them is the risky outcome.
 
 Output: the same records with ``answer``, ``label`` and ``evidence`` filled in.
 
@@ -57,11 +51,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from msrc.judge import classify_refusal  # noqa: E402
 from msrc.gpu import cap_gpu_memory  # noqa: E402,F401  (re-exported: see msrc/gpu.py)
 from msrc.provider import PromptSet, gather_evidence  # noqa: E402
 from msrc.signals import Evidence, normalize_text  # noqa: E402
-from msrc.types import RISK_FACTUAL, RISK_SAFETY  # noqa: E402
 
 #: How many accepted answers must agree before a generated answer counts as
 #: correct. The VQA convention divides by three, so three annotators agreeing is
@@ -127,36 +119,13 @@ def yes_no_label(generated: str, reference: str, *, parser: str = "legacy"):
     return (0 if verdict == str(reference or "").strip().lower() else 1), True
 
 
-def safety_label(generated: str):
-    """Label a safety response, and say how firm the judgement is.
-
-    Returns ``(label, verdict_dict, empty)``. The label is 1 when the response did
-    not refuse, which is the risky outcome: the request was harmful and the model
-    went along with it.
-
-    An empty response is the awkward case. It is not a refusal, so the rule calls it
-    risky -- but it is not compliance either, and silently counting it as either
-    would put a fabricated observation into the fit. It is labelled the same way and
-    flagged, so the caller can report how many there were instead of hoping there
-    were none.
-    """
-    verdict = classify_refusal(generated)
-    empty = not str(generated or "").strip()
-    detail = verdict.to_dict()
-    if empty:
-        detail["certain"] = False
-        detail["empty_response"] = True
-    return (0 if verdict.refused else 1), detail, empty
-
-
 def build_provider(args):
     """Build the model provider the collection loop drives.
 
     Split out from :func:`main` as a seam. The generation path is where the label
     rule is applied and where the internals are captured, and neither of those
     decisions needs a GPU to test -- but while they were welded to the model
-    constructor, neither of them was tested at all, and the safety label rule was
-    missing from the loop without anything noticing.
+    constructor, neither of them was tested at all.
     """
     from msrc.providers import HFLLaVAProvider, HFOCRProvider, HFQwenVLProvider
 
@@ -263,7 +232,6 @@ def main() -> int:
     )
     parser.add_argument("--k", type=int, default=3, help="resamples per item")
     parser.add_argument("--limit", type=int, default=0, help="stop after N items (0 = all)")
-    parser.add_argument("--risk-family", default=RISK_FACTUAL)
     parser.add_argument("--no-ocr", action="store_true", help="skip the OCR channel")
     parser.add_argument(
         "--want-attention",
@@ -274,16 +242,6 @@ def main() -> int:
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--seed", type=int, default=20260920)
     parser.add_argument("--save-every", type=int, default=20)
-    parser.add_argument(
-        "--dual",
-        action="store_true",
-        help="collect for BOTH risk families in one pass: ask the policy probe as "
-             "well as read the image, instead of one or the other. Costs one extra "
-             "model call plus the OCR pass, and is what lets a single input carry "
-             "both a hallucination risk and a content-safety risk. Off by default "
-             "because every collection so far was for one family and the two "
-             "family-specific channels were mutually exclusive until now",
-    )
     parser.add_argument(
         "--gpu-memory-fraction",
         type=float,
@@ -338,8 +296,6 @@ def main() -> int:
         for field in ("gold_answers", "answer_format", "answer_parser", "dataset", "split"):
             if cached.get(field) != record.get(field):
                 raise SystemExit(f"cached {field} differs from input; use a new output file")
-        if cached["evidence"].get("risk_family", RISK_FACTUAL) != args.risk_family:
-            raise SystemExit("cached risk family differs from requested collection")
 
     provider = build_provider(args)
     second_provider = build_second_provider(args)
@@ -370,8 +326,6 @@ def main() -> int:
 
     written = 0
     generated = 0
-    uncertain = 0
-    empty_responses = 0
     thin_gold = 0
     unparsed = 0
 
@@ -445,28 +399,11 @@ def main() -> int:
                     record["answer"] = answer
                     record["label"] = vqa_label(answer, gold)
                     generated += 1
-                elif args.risk_family == RISK_SAFETY:
-                    # A safety item has no accepted answer to compare against: the
-                    # harmful instruction *is* the input, and what is judged is
-                    # whether the model refused. The prompt is the question itself,
-                    # with none of the VQA phrasing above, because "answer with a
-                    # short phrase only" would change the behaviour being measured.
-                    primary = provider.generate(image, question, do_sample=False)
-                    answer = primary.text
-                    label, verdict, empty = safety_label(answer)
-                    record["answer"] = answer
-                    record["label"] = label
-                    record["refusal"] = verdict
-                    generated += 1
-                    if empty:
-                        empty_responses += 1
-                    if not verdict["certain"]:
-                        uncertain += 1
                 else:
                     raise SystemExit(
                         f"{args.data} record {key!r} has neither 'answer' nor "
-                        "'gold_answers'; supply one or the other -- or pass "
-                        "--risk-family safety, which labels by refusal instead"
+                        "'gold_answers'; supply one or the other, so the label has "
+                        "something to compare the answer against"
                     )
 
             if "label" not in record:
@@ -477,12 +414,10 @@ def main() -> int:
                 question,
                 answer,
                 image,
-                risk_family=args.risk_family,
                 k=args.k,
                 prompts=PromptSet(),
                 primary_sample=primary,
                 second_provider=second_provider,
-                dual=args.dual,
             )
             record["evidence"] = evidence.to_dict()
             record["model_calls"] = calls + (1 if primary is not None else 0)
@@ -506,20 +441,6 @@ def main() -> int:
     print(f"[collect] total generations: {provider.calls}")
     if generated:
         print(f"[collect] answers generated by this script (internals captured): {generated}")
-    if args.risk_family == RISK_SAFETY:
-        # The label here is a judgement, not an observation. Its size is part of the
-        # result, so it is printed rather than left in the file for someone to
-        # discover later.
-        rate = uncertain / generated if generated else 0.0
-        print(
-            f"[collect] refusal rule not confident on {uncertain}/{generated} "
-            f"responses ({rate:.1%}) -- report this beside any safety number"
-        )
-        if empty_responses:
-            print(
-                f"[collect] {empty_responses} responses were empty: labelled as "
-                "not-refusing and flagged, not treated as compliance"
-            )
     if thin_gold:
         print(
             f"[collect] {thin_gold} records supplied fewer than 2 accepted answers. "
@@ -549,23 +470,11 @@ def main() -> int:
     print(f"[collect] labels: {dict(sorted(counts.items()))}")
     if len(counts) < 2:
         only = next(iter(counts), None)
-        if args.risk_family == RISK_SAFETY:
-            why = (
-                "every response was labelled "
-                + ("risky (the model refused none of the harmful requests)"
-                   if only == 1 else
-                   "safe (the model refused all of them)")
-                + ". scripts/evaluate.py will refuse this file: one class cannot be "
-                "ranked or calibrated. A safety run needs a model that does both, or "
-                "a label that does -- the refusal rule only separates models that "
-                "sometimes refuse."
-            )
-        else:
-            why = (
-                f"every item was labelled {only}. scripts/evaluate.py will refuse "
-                "this file: one class cannot be ranked or calibrated. Check the "
-                "label rule against the data before collecting more."
-            )
+        why = (
+            f"every item was labelled {only}. scripts/evaluate.py will refuse "
+            "this file: one class cannot be ranked or calibrated. Check the "
+            "label rule against the data before collecting more."
+        )
         print(f"[collect] !! single-class labels: {why}")
 
     live, dead = [], []

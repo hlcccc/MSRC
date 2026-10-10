@@ -1,18 +1,14 @@
 """MSRC — multi-signal risk calibration for multimodal generation.
 
-Two risk families, one decision layer:
+One risk, one decision layer:
 
     evidence  ->  signals  ->  calibrated risk
-    (model)      (9 readings)   (fitted map)
+    (model)      (8 readings)  (fitted map)
 
-``factual``  scores whether an answer contradicts the image (hallucination).
-``safety``   scores whether an answer violates a stated content policy.
-
-Both use the same nine signals and the same calibrator; what differs is the
-label, the evidence gathered, and -- for the two family-specific signals -- which
-one applies. A deployment brings its own labels and, for the safety family, its
-own policy taxonomy: "what counts as unsafe" is a policy decision, and a framework
-that hard-coded an answer to it would be wrong everywhere except one place.
+The risk is **factual hallucination**: does the answer contradict the image? It is
+scored from eight signals -- three internal and five external -- by a calibrator
+fitted on the deployment's own labels. Content-safety risk is a different question
+with a different label and different evidence, and it is modelled elsewhere.
 """
 
 from msrc.conformal import (
@@ -23,22 +19,19 @@ from msrc.conformal import (
     select,
     selective_report,
 )
-from msrc.dual import DualRisk, DualRiskScorer
 from msrc.gpu import cap_gpu_memory
 from msrc.model import FusionHead, RiskCalibrator, RidgeLogistic
 from msrc.pipeline import DEFAULT_THRESHOLD, MSRCConfig, MSRCPipeline
 from msrc.provider import ModelProvider, PromptSet, StubProvider, gather_evidence
+from msrc.scorer import RiskScore, RiskScorer
 from msrc.signals import (
     ALL_SIGNALS,
     SIGNAL_NAMES,
     Evidence,
     build_report,
-    signal_names_for,
 )
 from msrc.types import (
     RISK_FACTUAL,
-    RISK_FAMILIES,
-    RISK_SAFETY,
     SIGNAL_EXTERNAL,
     SIGNAL_INTERNAL,
     RiskRequest,
@@ -53,8 +46,6 @@ __version__ = "0.1.0"
 __all__ = [
     "ALL_SIGNALS",
     "DEFAULT_THRESHOLD",
-    "DualRisk",
-    "DualRiskScorer",
     "Evidence",
     "FusionHead",
     "MSRCConfig",
@@ -62,11 +53,11 @@ __all__ = [
     "ModelProvider",
     "PromptSet",
     "RISK_FACTUAL",
-    "RISK_FAMILIES",
-    "RISK_SAFETY",
     "RiskCalibrator",
     "RiskRequest",
     "RiskResult",
+    "RiskScore",
+    "RiskScorer",
     "RidgeLogistic",
     "cap_gpu_memory",
     "SIGNAL_EXTERNAL",
@@ -84,6 +75,5 @@ __all__ = [
     "gather_evidence",
     "select",
     "selective_report",
-    "signal_names_for",
     "__version__",
 ]

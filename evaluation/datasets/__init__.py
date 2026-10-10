@@ -4,10 +4,10 @@ Each one turns a public benchmark into the JSONL shape
 :mod:`scripts.collect_evidence` reads, and each one records the label rule it
 applied so a result can be traced back to it.
 
-| adapter | family | label |
+| adapter | benchmark | label |
 |---|---|---|
-| :mod:`evaluation.datasets.mm_safety` | safety | refusal vs compliance, by :mod:`msrc.judge` |
-| :mod:`evaluation.datasets.pope` | factual | the model's yes/no answer against the reference, by `parse_yes_no` |
+| :mod:`evaluation.datasets.mm_safety` | MM-SafetyBench (content safety, modelled outside this repository) | refusal vs compliance, by :mod:`msrc.judge` |
+| :mod:`evaluation.datasets.pope` | POPE (factual hallucination) | the model's yes/no answer against the reference, by `parse_yes_no` |
 
 Importing this package does not require pandas; the adapters that need it import it
 themselves, after their path and argument checks, so a wrong root reports the root

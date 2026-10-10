@@ -1,11 +1,10 @@
-"""The evaluation report, which has to describe the right risk family.
+"""The evaluation report.
 
 The script used to print one fixed closing paragraph, so pointing it at safety
 evidence produced a report that said, in as many words, that the number was not a
-safety judgement. The family now comes from the evidence, and a file that mixes
-two families is refused rather than averaged: a factual label and a safety label
-are not the same quantity, and 1 does not even mean the same kind of thing in the
-two cases.
+safety judgement. Content-safety risk is no longer modelled in this repository, and
+the report describes the one thing that is: whether the answer contradicts the
+image.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from msrc.provider import StubProvider, gather_evidence  # noqa: E402
-from msrc.types import RISK_FACTUAL, RISK_SAFETY, Sample  # noqa: E402
+from msrc.types import RISK_FACTUAL, Sample  # noqa: E402
 
 
 def _load(name: str, relative: str):
@@ -34,7 +33,7 @@ def _load(name: str, relative: str):
 evaluate = _load("evaluate_under_test", "scripts/evaluate.py")
 
 
-def _evidence_rows(family: str, n: int = 40, *, with_verdicts: bool = False):
+def _evidence_rows(n: int = 40):
     """Alternating safe/risky items, with internals that track the label."""
     provider = StubProvider(ocr_text="Flickr")
     rows = []
@@ -49,18 +48,13 @@ def _evidence_rows(family: str, n: int = 40, *, with_verdicts: bool = False):
         )
         evidence, _ = gather_evidence(
             provider, "q", primary_text, f"/img{i % 20}.jpg",
-            risk_family=family, k=3, primary_sample=primary,
+            k=3, primary_sample=primary,
         )
         row = {
             "id": f"i{i}", "question": "q", "answer": primary_text,
             "image": f"/img{i % 20}.jpg", "label": risky,
             "evidence": evidence.to_dict(),
         }
-        if with_verdicts:
-            row["refusal"] = {
-                "refused": not risky, "certain": i % 10 != 0, "groups": [],
-                "compliance_hits": 0,
-            }
         rows.append(row)
     return rows
 
@@ -72,63 +66,24 @@ def _write(path: Path, rows) -> Path:
     return path
 
 
-def test_the_factual_family_is_reported_as_factual(tmp_path, capsys):
-    data = _write(tmp_path / "ev.jsonl", _evidence_rows(RISK_FACTUAL))
+def test_the_report_describes_the_factual_risk(tmp_path, capsys):
+    data = _write(tmp_path / "ev.jsonl", _evidence_rows())
     assert evaluate.main(["--data", str(data)]) == 0
     out = capsys.readouterr().out
-    assert f"risk family      : {RISK_FACTUAL}" in out
-    assert "内容安全" in out, "the factual report says what it is not"
-
-
-def test_the_safety_family_is_reported_as_safety(tmp_path, capsys):
-    data = _write(
-        tmp_path / "ev.jsonl", _evidence_rows(RISK_SAFETY, with_verdicts=True)
-    )
-    assert evaluate.main(["--data", str(data)]) == 0
-    out = capsys.readouterr().out
-    assert f"risk family      : {RISK_SAFETY}" in out
-    assert "不安全响应" in out
-    assert "拒绝判定不确定" in out, "the label rule's uncertainty is part of the result"
-    assert "事实性风险（回答与图像矛盾）" not in out, "must not describe the other family"
-
-
-def test_the_safety_report_computes_the_label_uncertainty_rate(tmp_path, capsys):
-    rows = _evidence_rows(RISK_SAFETY, n=40, with_verdicts=True)
-    data = _write(tmp_path / "ev.jsonl", rows)
-    assert evaluate.main(["--data", str(data), "--json"]) == 0
-    out = capsys.readouterr().out
-    payload = json.loads(out[out.index("{"):])
-
-    expected = sum(1 for r in rows if not r["refusal"]["certain"]) / len(rows)
-    assert payload["label_uncertain_rate"] == pytest.approx(expected, abs=1e-9)
-    assert payload["risk_family"] == RISK_SAFETY
-
-
-def test_mixed_families_are_refused(tmp_path, capsys):
-    rows = _evidence_rows(RISK_FACTUAL, n=20) + _evidence_rows(RISK_SAFETY, n=20)
-    data = _write(tmp_path / "ev.jsonl", rows)
-    with pytest.raises(SystemExit, match="mixes risk families"):
-        evaluate.main(["--data", str(data)])
-
-
-def test_an_unknown_family_is_refused(tmp_path):
-    rows = _evidence_rows(RISK_FACTUAL, n=20)
-    for row in rows:
-        row["evidence"]["risk_family"] = "made-up"
-    data = _write(tmp_path / "ev.jsonl", rows)
-    with pytest.raises(SystemExit, match="unknown risk family"):
-        evaluate.main(["--data", str(data)])
+    assert f"risk             : {RISK_FACTUAL}" in out
+    assert "内容安全" in out, "the report says what it is not"
 
 
 def test_the_report_always_prints_auroc_beside_ece(tmp_path, capsys):
     """ECE alone is gameable: a constant scores 0 while ranking nothing."""
-    data = _write(tmp_path / "ev.jsonl", _evidence_rows(RISK_FACTUAL))
+    data = _write(tmp_path / "ev.jsonl", _evidence_rows())
     assert evaluate.main(["--data", str(data), "--json"]) == 0
     out = capsys.readouterr().out
     payload = json.loads(out[out.index("{"):])
     for key in ("auroc", "brier", "ece_after", "ece_before", "n_bins", "threshold_metrics"):
         assert key in payload, key
     assert "AUROC" in out
+    assert payload["risk"] == RISK_FACTUAL
 
 
 def test_the_baseline_is_described_as_what_it_actually_is(tmp_path, capsys):
@@ -138,7 +93,7 @@ def test_the_baseline_is_described_as_what_it_actually_is(tmp_path, capsys):
     an internal one; the label has to follow the signal rather than the prose that
     was written when the baseline happened to be external.
     """
-    data = _write(tmp_path / "ev.jsonl", _evidence_rows(RISK_FACTUAL))
+    data = _write(tmp_path / "ev.jsonl", _evidence_rows())
     assert evaluate.main(["--data", str(data), "--json"]) == 0
     out = capsys.readouterr().out
     payload = json.loads(out[out.index("{"):])
@@ -158,13 +113,12 @@ def test_a_file_without_evidence_says_so(tmp_path):
 
 
 def test_a_single_class_file_explains_itself(tmp_path):
-    """The message that surfaced the safety run, now saying what it means.
+    """A file where every item carries the same label has nothing to rank.
 
-    All 220 harmful requests were complied with, so every label was 1, so the
-    evaluation refused the file with "one side of the split has a single class" --
-    which reads like a split problem and is not one.
+    The evaluation used to report that as "one side of the split has a single
+    class", which reads like a split problem and is not one.
     """
-    rows = _evidence_rows(RISK_SAFETY, n=20, with_verdicts=True)
+    rows = _evidence_rows(20)
     for row in rows:
         row["label"] = 1
     data = _write(tmp_path / "ev.jsonl", rows)
@@ -174,7 +128,6 @@ def test_a_single_class_file_explains_itself(tmp_path):
     message = str(excinfo.value)
     assert "the file holds a single class" in message
     assert "Every item is labelled 1" in message
-    assert "refused everything, or" in message, "the safety cause is named"
     assert "not a bug in the split" in message
 
 
@@ -185,7 +138,7 @@ def test_a_one_sided_split_blames_the_split_not_the_file(tmp_path):
     one. The split is by image, so whichever way it cuts, one side is single class
     while the file is not.
     """
-    rows = _evidence_rows(RISK_FACTUAL, n=12)
+    rows = _evidence_rows(12)
     for index, row in enumerate(rows):
         row["image"] = "/a.png" if index < 6 else "/b.png"
         row["label"] = 0 if index < 6 else 1
@@ -203,15 +156,14 @@ def test_a_one_sided_split_blames_the_split_not_the_file(tmp_path):
 # Category coverage
 # ---------------------------------------------------------------------------
 
-def test_the_report_lists_the_harm_categories_covered(tmp_path, capsys):
-    """A safety result should say which harm categories it covers.
+def test_the_report_lists_the_categories_covered(tmp_path, capsys):
+    """When the dataset carries categories, the report says which ones it covers.
 
-    MM-SafetyBench ships thirteen, and a reader looking for political content in
-    particular should not have to open the JSONL to find out whether it is there.
-    Per-category AUROC is deliberately absent: twenty items per category would make
-    it noise presented as a finding.
+    A reader looking for one category in particular should not have to open the
+    JSONL to find out whether it is there. Per-category AUROC is deliberately
+    absent: twenty items per category would make it noise presented as a finding.
     """
-    rows = _evidence_rows(RISK_SAFETY, n=40, with_verdicts=True)
+    rows = _evidence_rows(40)
     for index, row in enumerate(rows):
         row["category"] = "Political_Lobbying" if index % 2 else "Fraud"
     data = _write(tmp_path / "ev.jsonl", rows)
@@ -233,8 +185,8 @@ def test_the_report_lists_the_harm_categories_covered(tmp_path, capsys):
 
 
 def test_a_file_without_categories_says_nothing_about_them(tmp_path, capsys):
-    """TextVQA has no harm categories, and an empty table would be noise."""
-    data = _write(tmp_path / "ev.jsonl", _evidence_rows(RISK_FACTUAL))
+    """TextVQA has no categories, and an empty table would be noise."""
+    data = _write(tmp_path / "ev.jsonl", _evidence_rows())
     assert evaluate.main(["--data", str(data), "--json"]) == 0
     out = capsys.readouterr().out
     payload = json.loads(out[out.index("{"):])

@@ -77,12 +77,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="list the signal layer, and how many run under a given deployment",
     )
     p_signals.add_argument(
-        "--family",
-        default="factual",
-        choices=["factual", "safety"],
-        help="which risk family to report for (they differ by one signal)",
-    )
-    p_signals.add_argument(
         "--second-model",
         action="store_true",
         help="assume a second model is attached, which enables one more signal",
@@ -129,31 +123,24 @@ def _cmd_signals(args) -> int:
     from msrc.signals import ALL_SIGNALS
     from msrc.types import SIGNAL_INTERNAL
 
-    applied = [s for s in ALL_SIGNALS if s.applies_to(args.family)]
-    usable = applied if args.second_model else [
-        s for s in applied if s.name != "cross_model_agreement"
+    usable = ALL_SIGNALS if args.second_model else [
+        s for s in ALL_SIGNALS if s.name != "cross_model_agreement"
     ]
     internal = [s for s in usable if s.kind == SIGNAL_INTERNAL]
     external = [s for s in usable if s.kind != SIGNAL_INTERNAL]
 
-    print(f"Risk family: {args.family}")
     print(f"  defined : {len(ALL_SIGNALS)} signal types")
-    print(f"  apply   : {len(applied)}")
     print(f"  run     : {len(usable)}  ({len(internal)} internal + {len(external)} external)")
     print()
     for signal in usable:
         print(f"  {signal.name:24} {signal.kind:9} {signal.description}")
-    skipped = [s for s in applied if s not in usable]
+    skipped = [s for s in ALL_SIGNALS if s not in usable]
     if skipped:
         print()
         print("  not run in this configuration:")
         for signal in skipped:
             print(f"  {signal.name:24} {signal.kind:9} needs a second model")
     print()
-    if args.family == "safety":
-        print("Note: the safety family scores a policy question, and this framework")
-        print("ships no policy taxonomy. What counts as unsafe is a deployment")
-        print("decision, and a result computed without one is not reproducible.")
     return 0
 
 
@@ -309,7 +296,6 @@ def _cmd_score(args) -> int:
     print(f"risk_score            : {result.risk_score:.6f}")
     print(f"calibrated_confidence : {result.calibrated_confidence:.6f}")
     print(f"is_high_risk          : {result.is_high_risk}  (threshold {result.threshold})")
-    print(f"risk_family           : {result.risk_family}")
     print()
     for signal in result.signals.signals:
         flag = " " if signal.available else "!"

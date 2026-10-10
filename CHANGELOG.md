@@ -11,7 +11,7 @@ until they have been produced.
 
 ### Added
 
-- **Signal layer** (`msrc/signals.py`) — nine independent readings, six external
+- **Signal layer** (`msrc/signals.py`) — eight independent readings, five external
   and three internal, each with its provenance recorded:
 
   | signal | kind | borrowed from |
@@ -21,20 +21,17 @@ until they have been produced.
   | `typed_verification` | external | typed evidence probing |
   | `cross_model_agreement` | external | cross-model / judge agreement |
   | `grounding_check` | external | retrieval- and rule-grounded checking |
-  | `policy_probe` | external | policy self-report |
   | `sequence_confidence` | internal | LLM-Check, SAPLMA |
   | `output_entropy` | internal | distributional uncertainty |
   | `visual_attention` | internal | attention-based hallucination work |
 
-  Eight apply to either risk family: three internal and five external.
+  Seven run with a single model; `cross_model_agreement` is the one a second model
+  buys.
 
-- **Two risk families** — `factual` (does the answer contradict the image) and
-  `safety` (does the answer violate a content policy). They share the signals, the
-  calibrator and the metrics; what differs is the label, the evidence, and which
-  family-specific signal applies. The safety family expects a policy taxonomy from
-  the deployment rather than shipping one, because what counts as unsafe is a
-  policy decision and a hard-coded list would be wrong outside the place it was
-  written.
+- **One risk: factual hallucination.** *Does the answer contradict the image?* The
+  framework and its accounting are complete; content-safety risk is a different
+  question with a different label and different evidence, and it is modelled
+  outside this repository (see **Removed** below).
 
 - **Decision layer** (`msrc/model.py`, `msrc/pipeline.py`) — an L2-regularised
   logistic risk map solved by damped Newton, NumPy only; a guarded fusion head;
@@ -62,21 +59,22 @@ until they have been produced.
   `evaluate`, `version`. Declared in `pyproject.toml`; a test asserts the entry
   point resolves to a callable rather than only that the string is present.
 
-- **Safety label rule** (`msrc/judge.py`) — refusal detection in English and
+- **Refusal reading** (`msrc/judge.py`) — refusal detection in English and
   Chinese, with the awkward middle reported rather than hidden: a response that
   refuses and then complies is marked uncertain, and `uncertain_rate()` returns
-  the fraction so a safety result can quote the size of the judgement call.
+  the fraction so a content-safety result can quote the size of the judgement call.
+  This module is not part of the factual risk path; it is kept because the
+  content-safety work that moved out of this repository labels with it.
 
-- **Benchmark adapters** (`evaluation/datasets/`) — MM-SafetyBench into the record
-  shape the collector reads, plus `stratified_sample` for a category-balanced set.
+- **Benchmark adapters** (`evaluation/datasets/`) — POPE for the factual path, and
+  MM-SafetyBench into the record shape the out-of-repo content-safety labelling
+  reads, plus `stratified_sample` for a category-balanced set.
   `pyarrow` is a declared extra because pandas reads parquet only through an engine
   it does not install.
 
 - **Two model backends** (`msrc/providers/hf_vision.py`) — `HFLLaVAProvider` and
   `HFQwenVLProvider` over one shared implementation, selected with `--provider`.
-  Both produce the same signals; the second exists because the safety family's label
-  is "did the model refuse", which needs a model that does both, and LLaVA-1.5-13B
-  refuses none of MM-SafetyBench's TYPO set. The shared implementation handles both
+  Both produce the same signals. The shared implementation handles both
   image-token layouts (one placeholder expanded inside the model, or one per patch
   spliced in by the processor).
 
@@ -116,28 +114,34 @@ until they have been produced.
   with NumPy alone and a job that checks the declared signal inventory against the
   code rather than against the prose.
 
+### Removed
+
+- **The content-safety half of the framework.** Content-safety risk is being
+  modelled as a separate module outside this repository, so what went with it is:
+
+  - `RISK_SAFETY` and the `risk_family` plumbing that threaded a family string
+    through the types, provider, pipeline, service, CLI, scorer and provider
+    adapters — along with the `families` / `applies_to` mechanism that existed only
+    to keep the two families' signal sets disjoint;
+  - the four safety-only signals (`policy_probe`, `refusal_strength`,
+    `actionability`, `guard_model`) and their helpers, taking the declared
+    inventory from 12 to **8: three internal and five external**;
+  - the dual-head scorer (`msrc/dual.py`), now a single-head `msrc/scorer.py`;
+  - `scripts/check_safety_labels.py` and `scripts/run_guard.py`, and the
+    `policy_probe` / `--dual` / `--risk-family` channels in the collector;
+  - the safety branches in `scripts/evaluate.py`, whose report now describes one
+    risk, and the safety section of `scripts/audit_dsh_report.py`.
+
+  Kept deliberately, because a pipeline outside this repository consumes them:
+  `scripts/mmsafety_asr_judge.py`, `scripts/apply_asr_labels.py`, the
+  MM-SafetyBench adapter, and the refusal reading in `msrc/judge.py`.
+
 ### Fixed
 
-- **The safety family could not be run end to end.** The MM-SafetyBench adapter
-  emits records with no accepted answers, by design — there is nothing to compare a
-  response against, only a harmful request — and the collector had no branch that
-  would label such a record. It demanded an answer or accepted answers and exited,
-  so the two other files that documented the safety workflow described something
-  that did not work. The collector now labels safety items by refusal after
-  generating them, stores the verdict beside the label so the judgement can be
-  audited, and reports the rate at which the rule was unsure of itself.
-
-- **`scripts/check_safety_labels.py` did not exist**, though `msrc.judge` named it
-  as the way to measure the disagreement rate that module's own docstring says must
-  accompany a safety result. It now does: a labelling sheet can be generated, and
-  checking one reports agreement, Cohen's kappa, the confusion counts and every
-  disagreement with its response text.
-
-- **`evaluate.py` described every result as a factual one.** Pointed at safety
-  evidence it printed a closing paragraph stating that the number was not a safety
-  judgement. The family now comes from the evidence, the indicator heading and
-  caveats follow it, and a file that mixes two families is refused rather than
-  averaged: 1 does not mean the same kind of thing in the two cases.
+- **`evaluate.py` described every result as a factual one.** Pointed at
+  content-safety evidence it printed a closing paragraph stating that the number
+  was not a safety judgement. It now describes the one risk it reports, and
+  content-safety evidence is not evaluated here at all.
 
 - **`ModelProvider` did not describe what the collector calls.** It declares
   `generate` and `ocr`, but the collector also called `load()` and read
@@ -159,7 +163,7 @@ until they have been produced.
   refuses a signal set that differs from the one it was fitted on -- correctly, but
   at scoring time rather than at the mistake. The check is now
   `examples/numpy_only.py`, a file that can be run by hand and is covered by the
-  suite, and `msrc.signals.signal_names_for()` supplies the column list for the
+  suite, and `msrc.signals.SIGNAL_NAMES` supplies the column list for the
   documented `fit_from_signals` path instead of leaving each caller to write it out.
 
 - **`realized_fdp` was computed with the polarity inverted.** The module documents
@@ -176,7 +180,7 @@ until they have been produced.
   `False` with a note that the procedure had never been checked against this
   project's data. `scripts/validate_conformal.py` does that check over repeated
   three-way splits; with `BH`, `E[FDP]` stayed at or under `alpha` at every level on
-  both risk families, and the flag is `True` on that basis. The same measurement
+  this project's evidence, and the flag is `True` on that basis. The same measurement
   found that `BY` rejects nothing at all at this sample size, and that the realized
   FDP conditional on the procedure firing is several times `alpha` even though the
   expectation is controlled. Both are documented, because the second is what a
@@ -184,8 +188,8 @@ until they have been produced.
 
 ### Notes
 
-- The `safety` family's detection quality depends entirely on the policy taxonomy
-  and labels supplied to it. This release provides the mechanism and the
-  measurement, not a validated safety classifier.
+- Content-safety work built on this repository carries its own error floor: a
+  keyword refusal rule is a judgement, not an observation, and its quality depends
+  entirely on the labels supplied to it. It is no longer measured or reported here.
 - ECE is gameable: a constant predictor at the base rate scores exactly 0. The
   reporting helper prints Brier and AUROC beside it, and a test pins the property.

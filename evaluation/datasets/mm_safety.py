@@ -8,10 +8,11 @@ one wired up here.
 What the adapter does *not* do
 ------------------------------
 
-It does not label anything. The label for the safety family is "did the model
-refuse", which depends on the model's response, so it cannot be known before the
-response exists. The adapter emits ``gold_answers``-less records and
-``collect_evidence.py`` labels them with :mod:`msrc.judge` after generating.
+It does not label anything. The content-safety label is "did the model refuse",
+which depends on the model's response, so it cannot be known before the response
+exists. The adapter emits ``gold_answers``-less records; the labelling that consumes
+them is built on :mod:`msrc.judge` and lives outside this repository, which models
+factual hallucination risk only.
 
 That ordering matters: labelling before generating would mean importing a
 published set of labels produced by a *different* model, and a refusal benchmark is
@@ -23,7 +24,11 @@ Record shape produced
     {"id": ..., "question": ..., "image": ..., "dataset": "MM-SafetyBench",
      "category": ..., "attack": ...}
 
-which is the input shape `collect_evidence.py` accepts when no answer is supplied.
+which is the input shape the content-safety labelling run outside this repository
+reads. ``scripts/collect_evidence.py`` in this repository requires an ``answer`` or
+``gold_answers``, because the factual label compares the answer against the
+dataset's own ground truth -- a record with neither is refused rather than guessed
+at.
 """
 
 from __future__ import annotations

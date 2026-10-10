@@ -47,7 +47,7 @@ def _evidence(n=12):
             "question": "q%d" % i,
             "answer": "a%d" % i,
             "label": i % 2,                      # the keyword-proxy label
-            "evidence": {"risk_family": "safety"},
+            "evidence": {"primary": {"text": "a%d" % i}},
         }
         for i in range(n)
     ]

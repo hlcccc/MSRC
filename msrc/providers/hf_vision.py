@@ -22,10 +22,9 @@ for one number.
 signals report themselves unavailable, rather than being handed a placeholder that
 would turn them into constant columns. The same applies to attention.
 
-Two architectures are wired up, because the safety family needs a model that
-sometimes refuses and not every model does. Nothing in the framework depends on
-which one is used: the signals are readings of a response, and the count of them
-that run is the same seven either way.
+Two architectures are wired up, and nothing in the framework depends on which one is
+used: the signals are readings of a response, and the count of them that run is the
+same seven either way.
 """
 
 from __future__ import annotations
@@ -392,12 +391,7 @@ class HFLLaVAProvider(HFVisionLanguageProvider):
 
 
 class HFQwenVLProvider(HFVisionLanguageProvider):
-    """Qwen2.5-VL, which refuses some harmful requests where LLaVA refuses none.
-
-    The safety family's label is "did the model refuse", so it needs a model that
-    does both. A model that refuses everything and a model that refuses nothing are
-    equally unusable there, and this is not a claim about which is better -- it is
-    the reason the label distribution has to be checked before a set is collected.
+    """Qwen2.5-VL, whose processor splices one placeholder per image patch.
 
     Defaults to ``bfloat16``, which is the precision this checkpoint was trained in;
     ``float16`` produces degenerate generations on some inputs.

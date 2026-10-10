@@ -108,7 +108,7 @@ def test_risk_returns_the_platform_contract(client):
     assert response.status_code == 200
     body = response.json()
     for key in ("risk_score", "calibrated_confidence", "is_high_risk", "threshold",
-                "risk_family", "signals", "missing_signals", "warnings", "version"):
+                "signals", "missing_signals", "warnings", "version"):
         assert key in body, key
     assert 0.0 <= body["risk_score"] <= 1.0
 
@@ -159,11 +159,12 @@ def test_evidence_that_is_not_an_object_is_a_400(client):
 # Signals
 # ---------------------------------------------------------------------------
 
-def test_signals_lists_what_applies_to_the_served_family(client):
+def test_signals_lists_the_signal_layer(client):
     body = client.get("/v1/msrc/signals").json()
     names = {s["name"] for s in body}
-    assert "grounding_check" in names, "the factual family's own signal"
-    assert "policy_probe" not in names, "which belongs to the other family"
+    assert "grounding_check" in names
+    assert "cross_model_agreement" in names
+    assert len(names) == 8, names
     assert all(s["kind"] in ("internal", "external") for s in body)
 
 

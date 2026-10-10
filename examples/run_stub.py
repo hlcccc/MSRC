@@ -7,9 +7,10 @@ plausible readings on every channel, so the script runs the identical data twice
 
   * **text-only platform** -- the serving stack returns strings and nothing else.
     The three internal signals and the cross-model signal report themselves
-    unavailable; five signals carry the score.
+    unavailable; four signals carry the score.
   * **with generation-time internals** -- the platform recorded the logprobs and
-    attention of the call that produced the answer. All eight signals run.
+    attention of the call that produced the answer. Seven of the eight signals run;
+    the cross-model one still needs a second model.
 
 The difference between the two runs is the point of the framework.
 
@@ -33,7 +34,6 @@ from evaluation.metrics import format_summary, summarise  # noqa: E402
 from msrc import MSRCConfig, MSRCPipeline, Sample, StubProvider  # noqa: E402
 from msrc.provider import gather_evidence  # noqa: E402
 from msrc.signals import ALL_SIGNALS  # noqa: E402
-from msrc.types import RISK_FACTUAL, RISK_SAFETY  # noqa: E402
 
 QUESTION = "what is the website that hosts this photo?"
 RIGHT = "Flickr"
@@ -59,7 +59,7 @@ def primary_for(answer: str, failed: int) -> Sample:
 
 def run(with_internals: bool, n_fit: int = 120, n_eval: int = 200) -> dict:
     provider = StubProvider(answers=(RIGHT,), ocr_text=RIGHT)
-    pipeline = MSRCPipeline(provider=provider, config=MSRCConfig(k=5, risk_family=RISK_FACTUAL))
+    pipeline = MSRCPipeline(provider=provider, config=MSRCConfig(k=5))
 
     vectors, labels = [], []
     for i in range(n_fit):
@@ -68,7 +68,7 @@ def run(with_internals: bool, n_fit: int = 120, n_eval: int = 200) -> dict:
         primary = primary_for(answer, failed) if with_internals else None
         evidence, _ = gather_evidence(
             provider, QUESTION, answer, f"/img{i}.jpg",
-            risk_family=RISK_FACTUAL, k=5, primary_sample=primary,
+            k=5, primary_sample=primary,
         )
         vectors.append([s.risk for s in pipeline._report_for(evidence).signals])
         labels.append(failed)
@@ -105,11 +105,9 @@ def main() -> int:
     for kind, label in (("external", "external"), ("internal", "internal")):
         names = [s.name for s in ALL_SIGNALS if s.kind == kind]
         print(f"  {label:9} {len(names)}: {', '.join(names)}")
-    for family in (RISK_FACTUAL, RISK_SAFETY):
-        applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
-        internal = sum(1 for s in applied if s.kind == "internal")
-        print(f"  [{family}] {len(applied)} signals apply: "
-              f"{internal} internal + {len(applied) - internal} external")
+    internal = sum(1 for s in ALL_SIGNALS if s.kind == "internal")
+    print(f"  [hallucination] {len(ALL_SIGNALS)} signals: "
+          f"{internal} internal + {len(ALL_SIGNALS) - internal} external")
 
     results = {}
     for with_internals in (False, True):

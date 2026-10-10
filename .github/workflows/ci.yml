@@ -42,7 +42,6 @@ jobs:
           msrc version
           msrc signals
           msrc signals --second-model
-          msrc signals --family safety
 
       # The whole framework runs on a CPU with no model and no weights. If that
       # ever stops being true, this step is what notices -- and it is also the
@@ -53,45 +52,27 @@ jobs:
 
       # The README states the signal inventory. This asserts it against the code
       # rather than against the prose, so the two cannot drift apart -- including
-      # the distinction between what *applies* and what *runs*: one of the applied
-      # signals needs a second model, which is a deployment cost worth being explicit
-      # about. The two families are no longer symmetric; `guard_model` judges whether
-      # a response is harmful, which is a safety question with no factual counterpart.
+      # the distinction between what the layer *defines* and what *runs*: one of
+      # the eight needs a second model, which is a deployment cost worth being
+      # explicit about.
       - name: The declared signal inventory holds
         run: |
           python - <<'PY'
           import sys
           sys.path.insert(0, ".")
           from msrc.signals import ALL_SIGNALS
-          from msrc.types import RISK_FACTUAL, RISK_SAFETY
 
           external = [s.name for s in ALL_SIGNALS if s.kind == "external"]
           internal = [s.name for s in ALL_SIGNALS if s.kind == "internal"]
-          assert len(external) == 9, external
+          assert len(external) == 5, external
           assert len(internal) == 3, internal
+          assert len(ALL_SIGNALS) == 8, [s.name for s in ALL_SIGNALS]
 
-          counts = {RISK_FACTUAL: 8, RISK_SAFETY: 4}
-          for family, want in counts.items():
-              applied = [s for s in ALL_SIGNALS if s.applies_to(family)]
-              assert len(applied) == want, (family, [s.name for s in applied])
-              internal = sum(1 for s in applied if s.kind == "internal")
-              assert internal == (3 if family == RISK_FACTUAL else 0)
+          # one of the eight is bought by a second model, and only one
+          single = [s.name for s in ALL_SIGNALS if s.name != "cross_model_agreement"]
+          assert len(single) == 7, single
 
-              single = [s for s in applied if s.name != "cross_model_agreement"]
-              assert len(single) == want - (1 if family == RISK_FACTUAL else 0), \
-                  (family, [s.name for s in single])
-
-          # a response being harmful says nothing about whether it matches the image
-          guard = next(s for s in ALL_SIGNALS if s.name == "guard_model")
-          assert guard.applies_to(RISK_SAFETY) and not guard.applies_to(RISK_FACTUAL)
-
-          # the two families share no signal at all
-          f = {s.name for s in ALL_SIGNALS if s.applies_to(RISK_FACTUAL)}
-          s = {s.name for s in ALL_SIGNALS if s.applies_to(RISK_SAFETY)}
-          assert not (f & s), f & s
-
-          print("ok: 12 defined; 8 apply to factual (3 internal) and 4 to "
-                "safety (none internal); the families share no signal")
+          print("ok: 8 defined; 5 external, 3 internal; 7 run with one model")
           PY
 
   # The decision layer must stay importable with NumPy alone: no torch, no

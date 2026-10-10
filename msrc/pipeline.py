@@ -26,10 +26,8 @@ import numpy as np
 
 from msrc.model import FusionHead, RiskCalibrator
 from msrc.provider import PromptSet, gather_evidence
-from msrc.signals import ALL_SIGNALS, Evidence, build_report
+from msrc.signals import ALL_SIGNALS, SIGNAL_NAMES, Evidence, build_report
 from msrc.types import (
-    RISK_FACTUAL,
-    RISK_FAMILIES,
     SIGNAL_INTERNAL,
     RiskResult,
     SignalReport,
@@ -49,7 +47,6 @@ class MSRCConfig:
     """Frozen, serialisable configuration of a scorer."""
 
     version: str = "0.1.0"
-    risk_family: str = RISK_FACTUAL
     #: Resampling depth for the consistency signal. K=5 is the usual setting;
     #: K=1 disables the signal, which then reports itself unavailable.
     k: int = 5
@@ -60,10 +57,6 @@ class MSRCConfig:
     #: resampling entropy. Off by default: the head needs enough labelled items to
     #: be worth fitting, and refusing to fit is safer than fitting badly.
     use_fusion: bool = False
-
-    def __post_init__(self) -> None:
-        if self.risk_family not in RISK_FAMILIES:
-            raise ValueError(f"unknown risk family: {self.risk_family!r}")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -141,7 +134,6 @@ class MSRCPipeline:
                     str(record.get("question", "")),
                     str(record.get("answer", "")),
                     str(record.get("image", "")),
-                    risk_family=self.config.risk_family,
                     k=self.config.k,
                     prompts=self.prompts,
                     second_provider=self.second_provider,
@@ -200,7 +192,6 @@ class MSRCPipeline:
         self.provenance = {
             "provider": getattr(self.provider, "provider_kind", None),
             "second_provider": getattr(self.second_provider, "provider_kind", None),
-            "risk_family": self.config.risk_family,
             "signals": list(self.signal_names),
             "n_signals": len(self.signal_names),
             "n_internal_signals": sum(
@@ -250,7 +241,6 @@ class MSRCPipeline:
         self.provenance = {
             "provider": getattr(self.provider, "provider_kind", None),
             "second_provider": getattr(self.second_provider, "provider_kind", None),
-            "risk_family": self.config.risk_family,
             "signals": list(self.signal_names),
             "n_signals": len(self.signal_names),
             "n_internal_signals": sum(
@@ -298,7 +288,6 @@ class MSRCPipeline:
                 question,
                 answer,
                 image,
-                risk_family=self.config.risk_family,
                 k=self.config.k,
                 prompts=self.prompts,
                 second_provider=self.second_provider,
@@ -334,7 +323,6 @@ class MSRCPipeline:
             risk_score=round(score, 6),
             is_high_risk=bool(score >= self.config.threshold),
             threshold=float(self.config.threshold),
-            risk_family=self.config.risk_family,
             signals=report,
             warnings=warnings,
             model_calls=int(calls),
@@ -399,7 +387,7 @@ class MSRCPipeline:
         pipeline.provenance = dict(payload.get("provenance") or {})
         pipeline.fit_warnings = list(pipeline.provenance.get("fit_warnings") or [])
 
-        expected = [s.name for s in ALL_SIGNALS if s.applies_to(config.risk_family)]
+        expected = list(SIGNAL_NAMES)
         if pipeline.signal_names and set(pipeline.signal_names) != set(expected):
             pipeline.fit_warnings.append(
                 "the scorer was fitted on a different signal set than this version "

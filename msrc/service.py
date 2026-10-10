@@ -70,7 +70,6 @@ class RiskResponse(BaseModel):
     calibrated_confidence: float
     is_high_risk: bool
     threshold: float
-    risk_family: str
     signals: List[SignalOut]
     n_signals_available: int
     n_signals_missing: int
@@ -100,7 +99,6 @@ class SignalInfo(BaseModel):
     name: str
     kind: str
     description: str
-    families: List[str]
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +140,6 @@ def create_app(pipeline: Optional[MSRCPipeline] = None) -> FastAPI:
         return {
             "status": "ok",
             "scorer_fitted": bool(pipeline.fitted_),
-            "risk_family": pipeline.config.risk_family,
             "n_signals": len(pipeline.signal_names),
             "signals": list(pipeline.signal_names),
             "provenance": dict(pipeline.provenance),
@@ -152,16 +149,13 @@ def create_app(pipeline: Optional[MSRCPipeline] = None) -> FastAPI:
 
     @app.get("/v1/msrc/signals", response_model=List[SignalInfo])
     def signals() -> List[SignalInfo]:
-        family = pipeline.config.risk_family
         return [
             SignalInfo(
                 name=s.name,
                 kind=s.kind,
                 description=s.description,
-                families=[f for f in s.families],
             )
             for s in ALL_SIGNALS
-            if s.applies_to(family)
         ]
 
     @app.post("/v1/msrc/risk", response_model=RiskResponse)
@@ -186,7 +180,6 @@ def create_app(pipeline: Optional[MSRCPipeline] = None) -> FastAPI:
             calibrated_confidence=payload["calibrated_confidence"],
             is_high_risk=payload["is_high_risk"],
             threshold=payload["threshold"],
-            risk_family=payload["risk_family"],
             signals=[SignalOut(**s) for s in payload["signals"]["signals"]],
             n_signals_available=payload["signals"]["n_available"],
             n_signals_missing=len(report.missing()),

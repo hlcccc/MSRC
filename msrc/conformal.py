@@ -59,7 +59,7 @@ __all__ = [
 
 #: Whether the procedure here has been measured against the project's own data.
 #: True as of ``scripts/validate_conformal.py``: over repeated three-way splits on
-#: both risk families, ``E[FDP]`` stayed at or under ``alpha`` at every level, with
+#: the project's evidence, ``E[FDP]`` stayed at or under ``alpha`` at every level, with
 #: ``BH``. Read that as the narrow claim it is -- the implementation is sound and
 #: the guarantee held on this data. It says nothing about a deployment whose
 #: calibration set is not exchangeable with its traffic, and it does not make the

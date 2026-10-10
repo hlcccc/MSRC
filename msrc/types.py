@@ -10,15 +10,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 # ---------------------------------------------------------------------------
-# Risk families
+# The risk this framework scores
 # ---------------------------------------------------------------------------
 
-#: The two things this framework scores. They are separate because they need
-#: different labels and different evidence, but they share the whole decision
-#: layer: signals in, calibrated probability out.
-RISK_FACTUAL = "factual"      # the answer contradicts the image (hallucination)
-RISK_SAFETY = "safety"        # the answer violates a content policy
-RISK_FAMILIES = (RISK_FACTUAL, RISK_SAFETY)
+#: The one thing MSRC scores: whether the answer contradicts the image
+#: (hallucination). Content-safety risk is a different question with a different
+#: label and different evidence; it is modelled elsewhere.
+RISK_FACTUAL = "factual"
 
 # ---------------------------------------------------------------------------
 # Signals
@@ -128,7 +126,6 @@ class RiskResult:
     risk_score: float
     is_high_risk: bool
     threshold: float
-    risk_family: str
     signals: SignalReport
     warnings: List[str] = field(default_factory=list)
     model_calls: int = 0
@@ -146,7 +143,6 @@ class RiskResult:
             "calibrated_confidence": self.calibrated_confidence,
             "is_high_risk": self.is_high_risk,
             "threshold": self.threshold,
-            "risk_family": self.risk_family,
             "signals": self.signals.to_dict(),
             "warnings": list(self.warnings),
             "model_calls": self.model_calls,
@@ -162,7 +158,6 @@ class RiskRequest:
     question: str
     answer: str
     image: str = ""
-    risk_family: str = RISK_FACTUAL
     threshold: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:

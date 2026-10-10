@@ -1,8 +1,7 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Ten independent signals, seven external and three internal, mapped to calibrated
-risk scores for two risk families — hallucination and content safety — from a
-single input.**
+**Eight independent signals, five external and three internal, mapped to a
+calibrated hallucination-risk score from a single input.**
 
 MSRC scores a *frozen* model's answer after the fact. It does not retrain or
 modify the model under evaluation, and it does not need its weights — but it does
@@ -15,48 +14,25 @@ use more than the model's text, which is the point:
 | 3 | `typed_verification` | external | typed evidence probing |
 | 4 | `cross_model_agreement` | external | cross-model / judge agreement |
 | 5 | `grounding_check` | external | retrieval- and rule-grounded checking |
-| 6 | `policy_probe` | external | policy self-report, Llama-Guard style |
-| 7 | `sequence_confidence` | **internal** | LLM-Check, SAPLMA |
-| 8 | `output_entropy` | **internal** | distributional uncertainty |
-| 9 | `visual_attention` | **internal** | attention-based VLM hallucination work |
+| 6 | `sequence_confidence` | **internal** | LLM-Check, SAPLMA |
+| 7 | `output_entropy` | **internal** | distributional uncertainty |
+| 8 | `visual_attention` | **internal** | attention-based VLM hallucination work |
 
-Two risk families share the whole decision layer:
-
-* **`factual`** — does the answer contradict the image?
-* **`safety`** — does the answer violate a content policy?
-
-What differs is the label, the evidence gathered, and which family-specific
-signal applies (`grounding_check` for factual, `policy_probe` for safety).
+The risk is factual: **does the answer contradict the image?** Content-safety risk
+— does the answer violate a stated policy — is a different question with a
+different label and different evidence. It used to share this decision layer and it
+no longer does; it is modelled outside this repository.
 
 ### How many of them actually run
 
-Twelve signal types are defined, and **the two families share none of them**. That is
-deliberate and it is what the measurements said to do:
+Eight signal types are defined: **five external and three internal**. What a
+deployment can feed decides how many of them produce a reading:
 
-| family | signals | of which run with one model |
-|---|---|---|
-| factual (hallucination) | **8** | 7 |
-| safety (content) | **4** | 4 |
-
-The safety family used to be the factual one with a column swapped: seven of its nine
-columns were the consistency, resampling, verification and internal readings, built
-for a different question. On the measured data every one of those seven separated
-"the model complied" from "the model refused" by less than 0.08. A column that carries
-no information about the question is not free -- it costs a parameter that a small
-development half cannot afford, and it invites the fit to spend it on noise.
-
-So the split is:
-
-* **factual** -- the four re-asking signals (`self_consistency`,
-  `resample_consistency`, `typed_verification`, `cross_model_agreement`),
-  `grounding_check`, and the three internal readings (`sequence_confidence`,
-  `output_entropy`, `visual_attention`). The internal readings go here deliberately:
-  "is the model unsure" is evidence about whether an answer is grounded, and on the
-  safety side it measured -0.061 and -0.077, which is noise.
-* **safety** -- `policy_probe` (the model judging its own output), `guard_model` (a
-  purpose-built guard), `refusal_strength` (did it refuse, and did it comply anyway)
-  and `actionability` (is the response written as instructions). All four ask a safety
-  question; none of them means anything for a hallucination.
+| configuration | signals that run |
+|---|---|
+| text-only serving stack, one model | **4** (the external ones that need no internals and no second model) |
+| one model at full access | **7** |
+| a second model attached | **8** |
 
 `cross_model_agreement` is the one signal a second model buys, and its reason for
 existing is narrow but real -- resampling *one* model is correlated with itself, so a
@@ -64,28 +40,14 @@ systematic blind spot (a chart the model always misreads) makes every sample agr
 every consistency signal report confidence. A different model is the only way to break
 that correlation.
 
-**A circularity to know about before quoting a safety number.** `refusal_strength`
-reads refusal; the project's safety label is currently produced by a keyword refusal
-detector. Fitting one to the other measures the detector against itself -- on the
-260-item set it scores 100.00% with AUROC 1.0000, which is not a result. The library
-refuses that configuration outright (`msrc.judge.assert_not_circular`), and the column
-only becomes legitimate once the labels come from the official MM-SafetyBench
-scenario judge, which asks about authorisation and caution rather than about refusal
-phrases.
+The three internal readings (`sequence_confidence`, `output_entropy`,
+`visual_attention`) are kept deliberately: "is the model unsure" is evidence about
+whether an answer is grounded, and unlike a consistency reading it needs no extra
+generations — only that the platform recorded the internals of the call that
+produced the answer.
 
-`guard_model` is the one addition that is worth explaining. `policy_probe` asks the
-model under evaluation a policy question about its own output: cheap, since no
-second set of weights is needed, but it is an ad-hoc prompt to a general model. On
-the data measured here its verdict came out anti-correlated with the label. Every
-mainstream safety evaluation instead uses a model trained for the judgement — Llama
-Guard, ShieldGemma, Qwen3Guard — and this signal reads one of those. The two are
-kept as **separate columns** rather than one replacing the other: they are different
-measurements, they can disagree, and the calibrator should be free to weight them
-differently, which it cannot do if they are merged. A run with no guard configured
-leaves the column unavailable rather than silently zero.
-
-For either family and any of these configurations, the signals that cannot run
-say so by name in the result.
+For any of these configurations, the signals that cannot run say so by name in the
+result.
 
 ## The two ideas worth reading the code for
 
@@ -129,7 +91,7 @@ pip install -e ".[service]"      # the HTTP service
 
 ```bash
 msrc signals                     # what the signal layer defines, and what runs
-msrc signals --family safety     # the same, for the other risk family
+msrc signals --second-model      # the same, with a second model attached
 msrc demo                        # the whole chain on a CPU, no model
 msrc explain  --data evidence.jsonl
 msrc fit      --data evidence.jsonl --out scorer.json
@@ -137,12 +99,11 @@ msrc score    --scorer scorer.json --evidence one.json
 msrc evaluate --data evidence.jsonl
 ```
 
-`msrc signals` reports the honest count per family — ten defined, **eight
-applicable and seven that run with a single model** for factual risk, nine and
-eight for safety — and names the ones that need a second model or a guard.
+`msrc signals` reports the honest count — eight defined, **seven that run with a
+single model** — and names the one signal that needs a second model.
 
 `msrc explain` is the first thing to run on real data: it says which signals
-carry information and which came out constant, because "ten signals are defined"
+carry information and which came out constant, because "eight signals are defined"
 and "six ran on this data" are different claims and only the second is a result.
 
 `msrc score` refuses a scorer with no fitted coefficients. Returning an
@@ -160,8 +121,8 @@ python examples/run_stub.py
 ```
 
 It also demonstrates the difference the internal signals make, by running the
-same data twice: once with a text-only platform (five signals live) and once with
-generation-time internals supplied (eight live).
+same data twice: once with a text-only platform (four signals live) and once with
+generation-time internals supplied (seven live).
 
 `examples/run_stub.py` is explicit that its numbers are meaningless — the stub is
 not a detector. It proves the wiring, not the method.
@@ -171,7 +132,7 @@ not a detector. It proves the wiring, not the method.
 ```python
 from msrc import MSRCConfig, MSRCPipeline, Sample
 
-pipeline = MSRCPipeline(provider=your_provider, config=MSRCConfig(k=5, risk_family="factual"))
+pipeline = MSRCPipeline(provider=your_provider, config=MSRCConfig(k=5))
 pipeline.fit(records)          # records: {"question", "answer", "image", "label"}
 
 result = pipeline.score(
@@ -195,11 +156,11 @@ The calibrator is fitted on **your** labelled items, and the signals transfer
 between models while the coefficients do not. That is not a limitation to work
 around; it is what calibration means.
 
-For the `safety` family the framework also requires a **policy taxonomy**. It does
-not ship one, deliberately: what counts as unsafe is a policy decision that varies
-by deployment and jurisdiction, and a hard-coded list would be wrong everywhere
-except the place it was written. Supply your categories through the probe prompt
-and label accordingly.
+The label is the dataset's own ground truth: does the answer contradict the image
+(the VQA agreement rule against the accepted answers, or POPE's yes/no reference).
+The other kind of content risk — does the answer violate a stated policy — needs a
+different label and a policy taxonomy the deployment owns, and it is modelled
+outside this repository.
 
 ## Selecting, not just scoring
 
@@ -280,7 +241,7 @@ produced should not appear in a table.
 that produce a result are:
 
 ```bash
-# factual, object hallucination: POPE. One-word references, so correctness is not
+# object hallucination: POPE. One-word references, so correctness is not
 # entangled with answer formatting.
 python -c "from evaluation.datasets.pope import SPLITS, build_records, write_jsonl; \
            write_jsonl(build_records('/path/to/pope', 'out', splits=SPLITS), 'pope.jsonl')"
@@ -291,71 +252,33 @@ python scripts/collect_evidence.py --data pope.jsonl --out evidence_pope.jsonl \
 python scripts/evaluate.py --data evidence_pope.jsonl --json
 python scripts/group_report.py --data evidence_pope.jsonl --group-by split
 
-# factual, open-ended: TextVQA, or any VQA set with accepted answers
+# open-ended: TextVQA, or any VQA set with accepted answers
 python scripts/collect_evidence.py --data textvqa.jsonl --out evidence.jsonl \
     --model-path /path/to/llava --k 3 --want-attention
 python scripts/evaluate.py --data evidence.jsonl --json
 python scripts/threshold_analysis.py --data evidence.jsonl
-
-# safety: MM-SafetyBench, labelled by refusal after generating
-python -c "from evaluation.datasets.mm_safety import build_records, \
-               stratified_sample, write_jsonl; \
-           write_jsonl(stratified_sample(build_records('/path/to/mm_safety', 'out', \
-               attacks=['TYPO']), per_category=20), 'mmsafety.jsonl')"
-python scripts/collect_evidence.py --data mmsafety.jsonl --out safety.jsonl \
-    --model-path /path/to/qwen2.5-vl --provider qwen --risk-family safety
-python scripts/evaluate.py --data safety.jsonl --json
 ```
 
 Passing `--second-model-path` turns on `cross_model_agreement`, the one signal a
-second model buys beyond `guard_model`. The two models can sit on different cards
-with `--device` / `--second-device`, which on a shared machine is usually cheaper
-than packing a 13B and a 7B onto one.
-
-`--dual` collects for both risk families in one pass — the policy probe *and* the
-image read, instead of one or the other. It costs one extra model call plus the OCR
-pass, and it is what lets a single input carry both a hallucination risk and a
-content-safety risk; see `msrc/dual.py`.
-
-`stratified_sample` takes the same number from each harm category, so the number
-describes the benchmark rather than whichever categories sort first. Its RNG is
-seeded per category, so adding a category to a later release only adds that
-category's items — it does not re-draw the ones already collected and paid for.
+second model buys. The two models can sit on different cards with `--device` /
+`--second-device`, which on a shared machine is usually cheaper than packing a 13B
+and a 7B onto one.
 
 **Read the per-group report, not just the pooled one.** POPE's `random`, `popular`
 and `adversarial` splits draw their negative examples differently and are not
 interchangeable; `group_report.py` prints each separately together with the base
 rate a never-warn system scores, which is the number an accuracy has to beat.
 
-**Check the label distribution before collecting.** The safety label is "did the
-model refuse", so it needs a model that does both: one that refuses everything and
-one that refuses nothing are equally unusable, and both give a single-class file
-that `evaluate.py` will refuse. The collector prints the label distribution and says
-so when there is only one class; a handful of items is enough to find out which
-kind of model you have.
+**Check the label distribution before collecting.** A file where every item carries
+the same label cannot be ranked or calibrated, and `evaluate.py` will refuse it. The
+collector prints the label distribution and says so when there is only one class, so
+a handful of items is enough to find out rather than an hour of GPU time.
 
 `--provider` selects the architecture (`llava` or `qwen`); both produce the same
-signals, and nothing else in the pipeline knows which one ran. The safety family
-needs a model that refuses *some* harmful requests — LLaVA-1.5-13B refuses none of
-them, which makes it the wrong instrument for that family and says nothing about
-the framework.
-
-The safety labels are a keyword judgement, not an observation, so measure the
-judgement before quoting anything fitted on it. `--make-template` writes a sheet of
-responses with the human column blank; fill it in and the check reports the
-agreement, Cohen's kappa and every disagreement with its text:
-
-```bash
-python scripts/check_safety_labels.py --make-template safety.jsonl \
-    --out to_label.jsonl --sample 100
-# read each response, set "human_refused" to true or false
-python scripts/check_safety_labels.py --data to_label.jsonl --min-agreement 0.9
-```
+signals, and nothing else in the pipeline knows which one ran.
 
 The report states which signals ran, the ECE gain with its binning, AUROC and the
-threshold metrics, and — for the safety family — the rate at which the label rule
-was not confident, because a refusal classifier's uncertain cases are a real part
-of the error floor and not a detail.
+threshold metrics.
 
 ## Licence
 
