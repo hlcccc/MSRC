@@ -113,6 +113,9 @@ class HFVisionLanguageProvider:
     #: Config attributes that hold the image placeholder's token id, tried in
     #: order. The architectures name it differently and neither name is universal.
     image_token_fields: Sequence[str] = ("image_token_index", "image_token_id")
+    #: Whether the processor takes a ``max_pixels`` budget. True only for the
+    #: dynamically-resizing families; forwarding it elsewhere fails at startup.
+    supports_pixel_budget: bool = False
 
     def __init__(
         self,
@@ -200,9 +203,21 @@ class HFVisionLanguageProvider:
         # which is a single 126 GiB allocation -- one HallusionBench image ended a
         # run at item 108 that way. Capping the budget keeps the signal available
         # instead of losing it on exactly the figures that need it most.
+        #
+        # Only for processors that accept it. Handing `max_pixels` to a processor
+        # that does not know the name is not a warning, it is a failure at startup,
+        # so a provider that cannot use the budget says so instead of forwarding it.
         processor_kwargs: Dict[str, Any] = {}
-        if self.max_pixels:
+        if self.max_pixels and self.supports_pixel_budget:
             processor_kwargs["max_pixels"] = int(self.max_pixels)
+        elif self.max_pixels:
+            warnings.warn(
+                f"{type(self).__name__} does not take a pixel budget, so "
+                f"max_pixels={self.max_pixels} is ignored. The budget exists for "
+                "processors that resize dynamically; this one does not.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         self._processor = AutoProcessor.from_pretrained(self.model_path, **processor_kwargs)
         load_kwargs: Dict[str, Any] = {
             "torch_dtype": getattr(torch, self.dtype),
@@ -412,6 +427,7 @@ class HFQwenVLProvider(HFVisionLanguageProvider):
 
     provider_kind = "qwen-vl"
     model_class_name = "Qwen2_5_VLForConditionalGeneration"
+    supports_pixel_budget = True
 
     def __init__(self, *args: Any, **kwargs: Any):
         kwargs.setdefault("dtype", "bfloat16")
