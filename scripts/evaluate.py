@@ -25,6 +25,7 @@ with a different label; it is not reported here.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from collections import Counter
@@ -49,6 +50,35 @@ PROSE = {
     "is_not": "内容安全（政治敏感 / 违规）判定 —— 那需要另一套标签和政策口径",
     "label_rule": "标签：回答与参考回答不一致（VQA 一致度 < 0.5 记为风险）",
 }
+
+
+def textvqa_official_labels(rows: list):
+    """The official TextVQA soft-accuracy rule, as risk labels.
+
+    TextVQA is not a set of interchangeable references. The official evaluator
+    scores an answer against the ten collected phrasings with its own normaliser
+    and takes the soft accuracy, so the label it produces is not the label the
+    archived VQA-agreement rule produces: on the 5,000-item run the two disagree
+    on 21 items, which is 0.04 points of accuracy and 0.6 points of ECE.
+
+    The evaluator is vendored under ``references/`` and this repository reports
+    the official rule, so a reader re-running this script has to be able to reach
+    it. Before this existed the option was POPE-only, and the number that came
+    back did not match the number in the report -- which reads as a regression
+    rather than as a different label rule.
+    """
+    refs = Path(__file__).resolve().parents[1] / "references"
+    spec = importlib.util.spec_from_file_location("reference_textvqa", refs / "m4c_evaluator.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    evaluator = module.TextVQAAccuracyEvaluator()
+    scores = [
+        evaluator._compute_answer_scores(row.get("gold_answers") or []).get(
+            evaluator.answer_processor(row.get("answer", "")), 0.0
+        )
+        for row in rows
+    ]
+    return np.asarray([int(score < 0.5) for score in scores])
 
 
 def load_jsonl(path: Path) -> list:
@@ -90,6 +120,10 @@ def main(argv=None) -> int:
     parser.add_argument("--pope-label-rule", choices=("archived", "official"),
                         default="archived",
                         help="relabel cached POPE answers with the released scorer")
+    parser.add_argument("--textvqa-label-rule", choices=("archived", "official"),
+                        default="archived",
+                        help="official = the released TextVQA soft-accuracy rule, which is "
+                             "the label the reported TextVQA number uses")
     args = parser.parse_args(argv)
 
     rows = load_jsonl(Path(args.data).expanduser())
@@ -97,15 +131,29 @@ def main(argv=None) -> int:
     if not rows:
         raise SystemExit("no records with evidence; run collect_evidence.py first")
 
+    # ---- label rule ------------------------------------------------------
+    # The official TextVQA rule scores the whole answer set at once, so it is
+    # computed here rather than inside the loop.
+    textvqa_labels = None
+    if args.textvqa_label_rule == "official":
+        if not all("textvqa" in str(row.get("dataset", "")).lower() for row in rows):
+            raise SystemExit("--textvqa-label-rule official requires TextVQA records")
+        textvqa_labels = textvqa_official_labels(rows)
+        changed = int((textvqa_labels != np.asarray([int(r["label"]) for r in rows])).sum())
+        print(f"  official TextVQA soft-accuracy rule: {changed} of {len(rows)} labels differ "
+              f"from the archived ones")
+
     # ---- signal matrix -------------------------------------------------
     names: list = []
     matrix, labels, groups = [], [], []
-    for row in rows:
+    for index, row in enumerate(rows):
         report = build_report(Evidence.from_dict(row["evidence"]))
         if not names:
             names = report.names()
         matrix.append(report.vector())
         label = int(row["label"])
+        if textvqa_labels is not None:
+            label = int(textvqa_labels[index])
         if args.pope_label_rule == "official":
             from evaluation.datasets.pope import parse_yes_no_official
             if str(row.get("dataset", "")).lower() != "pope":
@@ -123,6 +171,9 @@ def main(argv=None) -> int:
         prose["label_rule"] = ("标签：POPE物体存在性回答错误；" +
                                ("使用官方答案解析规则" if args.pope_label_rule == "official"
                                 else "使用归档标签，解析版本以缓存为准"))
+    if textvqa_labels is not None:
+        prose["label_rule"] = ("标签：官方 TextVQA 软准确度 < 0.5 记为风险"
+                               "（使用 references/m4c_evaluator.py 的官方评分器）")
 
     X = np.asarray(matrix, dtype=float)
     y = np.asarray(labels, dtype=int)

@@ -112,6 +112,56 @@ def test_a_file_without_evidence_says_so(tmp_path):
         evaluate.main(["--data", str(data)])
 
 
+# ---------------------------------------------------------------------------
+# The TextVQA label rule
+# ---------------------------------------------------------------------------
+
+
+def test_the_official_textvqa_rule_scores_against_the_ten_phrasings():
+    """The released rule, reached through the vendored evaluator.
+
+    The reported TextVQA number uses this rule, not the archived VQA-agreement
+    one, and the two disagree: 21 of 5,000 labels. A reader re-running the script
+    without being able to select the official rule got a different ECE and would
+    read it as a regression rather than as a different label.
+    """
+    rows = [
+        {"gold_answers": ["cat", "a cat", "cats", "the cat", "kitty",
+                          "cat.", "Cat", "a kitty cat", "kitten", "cat "],
+         "answer": "cat"},
+        {"gold_answers": ["cat", "a cat", "cats", "the cat", "kitty",
+                          "cat.", "Cat", "a kitty cat", "kitten", "cat "],
+         "answer": "a tractor"},
+    ]
+    labels = evaluate.textvqa_official_labels(rows)
+    assert list(labels) == [0, 1], labels
+
+
+def test_the_official_textvqa_rule_refuses_other_benchmarks(tmp_path):
+    """Applied to yes/no records it would score every answer 0 and look fine."""
+    rows = _evidence_rows(20)
+    for row in rows:
+        row["dataset"] = "POPE"
+    data = _write(tmp_path / "ev.jsonl", rows)
+    with pytest.raises(SystemExit, match="requires TextVQA records"):
+        evaluate.main(["--data", str(data), "--textvqa-label-rule", "official"])
+
+
+def test_the_official_textvqa_rule_names_itself_in_the_report(tmp_path, capsys):
+    rows = _evidence_rows(20)
+    for row in rows:
+        row["dataset"] = "TextVQA"
+        row["gold_answers"] = ["a cat"] * 10
+        row["answer"] = "a cat" if row["label"] == 0 else "a tractor"
+    data = _write(tmp_path / "ev.jsonl", rows)
+    assert evaluate.main(["--data", str(data), "--textvqa-label-rule", "official",
+                          "--json"]) == 0
+    out = capsys.readouterr().out
+    assert "official TextVQA soft-accuracy rule" in out
+    payload = json.loads(out[out.index("{"):])
+    assert "TextVQA" in payload["label_rule"] or "textvqa" in payload["label_rule"].lower()
+
+
 def test_a_single_class_file_explains_itself(tmp_path):
     """A file where every item carries the same label has nothing to rank.
 

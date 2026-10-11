@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — the TextVQA label rule the reported number uses
+
+`references/m4c_evaluator.py` has been vendored here for a while, and the reported
+TextVQA row is produced with it, but `scripts/evaluate.py` could not reach it: the
+only official-rule switch was POPE-only and refused TextVQA records. Re-running the
+script therefore returned a different ECE — +82.68% against the reported +83.27% —
+which reads as a regression rather than as a different label rule. It is a different
+label rule: the official soft-accuracy scorer disagrees with the archived
+VQA-agreement label on 21 of the 5,000 items.
+
+### Added
+
+- `scripts/evaluate.py --textvqa-label-rule official` — applies the released rule
+  through the vendored evaluator, says how many labels it moved, and names the rule
+  in the reported `label_rule`. It refuses records that are not TextVQA, because on
+  yes/no answers the soft scorer returns 0 for everything and the run would look
+  like it worked.
+- three tests, including the one that pins the refusal: the failure mode is a number
+  that is wrong and plausible, not a crash.
+
+### Changed
+
+- the POPE switch keeps its own name and behaviour; the two are separate options
+  because the two benchmarks need different scorers, and merging them would hide
+  which rule produced a given number.
+
 ## [Unreleased] — benchmarks whose label reads the response
 
 Every benchmark here used to be one of two kinds: the label compares the response
