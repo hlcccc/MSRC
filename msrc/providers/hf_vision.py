@@ -126,6 +126,7 @@ class HFVisionLanguageProvider:
         top_p: float = 0.9,
         seed: Optional[int] = None,
         want_attention: bool = False,
+        max_pixels: Optional[int] = None,
         model_fn: Any = None,
     ):
         self.model_path = model_path
@@ -137,6 +138,7 @@ class HFVisionLanguageProvider:
         self.top_p = float(top_p)
         self.seed = seed
         self.want_attention = bool(want_attention)
+        self.max_pixels = int(max_pixels) if max_pixels else None
         self._model_fn = model_fn
 
         self._model = None
@@ -190,7 +192,18 @@ class HFVisionLanguageProvider:
             )
 
         self._torch = torch
-        self._processor = AutoProcessor.from_pretrained(self.model_path)
+        # A pixel budget for processors that take one (Qwen2-VL/Qwen2.5-VL resize
+        # dynamically, LLaVA crops to a fixed 336). It is not a cosmetic knob:
+        # `visual_attention` needs eager attention, eager attention materialises
+        # the full matrix, and the vision tower's matrix is quadratic in the patch
+        # count. A 24 MP chart is 65,536 patches at the Qwen default of 12.8 MP,
+        # which is a single 126 GiB allocation -- one HallusionBench image ended a
+        # run at item 108 that way. Capping the budget keeps the signal available
+        # instead of losing it on exactly the figures that need it most.
+        processor_kwargs: Dict[str, Any] = {}
+        if self.max_pixels:
+            processor_kwargs["max_pixels"] = int(self.max_pixels)
+        self._processor = AutoProcessor.from_pretrained(self.model_path, **processor_kwargs)
         load_kwargs: Dict[str, Any] = {
             "torch_dtype": getattr(torch, self.dtype),
             "device_map": self.device,
@@ -401,5 +414,45 @@ class HFQwenVLProvider(HFVisionLanguageProvider):
     model_class_name = "Qwen2_5_VLForConditionalGeneration"
 
     def __init__(self, *args: Any, **kwargs: Any):
+        kwargs.setdefault("dtype", "bfloat16")
+        super().__init__(*args, **kwargs)
+
+
+class HFInternVLProvider(HFVisionLanguageProvider):
+    """InternVL through the transformers-native class.
+
+    There are two kinds of InternVL checkpoint on the Hub and the difference is not
+    visible from the model card:
+
+    * the original releases (``InternVL2-8B``, ``InternVL2_5-8B``, ``InternVL3-8B``)
+      carry ``model_type: internvl_chat`` and ship their own modelling code behind
+      ``auto_map``, so they need ``trust_remote_code``. That code targets an older
+      transformers API -- ``InternVLChatModel`` has no ``all_tied_weights_keys``, which
+      loading now requires -- and it cannot be loaded at all here. Its tokenizer also
+      needs a ``sentencepiece`` older than 0.2, and its vision tower needs ``timm``.
+    * the ``-hf`` conversions (``InternVL3-8B-hf``) are ``model_type: internvl`` and are
+      implemented inside transformers. No remote code, no sentencepiece, no timm.
+
+    This provider is the second kind. Point ``--model-path`` at a ``-hf`` conversion;
+    given the first kind it fails at ``from_pretrained`` with the tie-keys error, which
+    is a clearer outcome than silently loading half a model.
+
+    ``image_token_id`` is on the config (``151667`` for InternVL3-8B-hf) and the
+    processor pre-expands it to one id per patch -- 256 per tile -- so the base class's
+    pre-expanded branch finds the image span without arithmetic.
+    """
+
+    provider_kind = "internvl"
+    model_class_name = "InternVLForConditionalGeneration"
+    image_token_fields = ("image_token_id", "img_context_token_id", "image_token_index")
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        # bfloat16, like Qwen and for the same reason: the checkpoint was trained in
+        # it, and under float16 the sampled path produces NaN logits. The failure is
+        # not subtle once it happens -- `torch.multinomial` raises "probability
+        # tensor contains either inf, nan or element < 0" and the run dies on the
+        # first resample -- but it costs a load and a forward pass to find out, and
+        # the greedy path is fine, so a smoke test that only checks generation
+        # would miss it.
         kwargs.setdefault("dtype", "bfloat16")
         super().__init__(*args, **kwargs)

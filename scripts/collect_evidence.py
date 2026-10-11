@@ -127,9 +127,15 @@ def build_provider(args):
     decisions needs a GPU to test -- but while they were welded to the model
     constructor, neither of them was tested at all.
     """
-    from msrc.providers import HFLLaVAProvider, HFOCRProvider, HFQwenVLProvider
+    from msrc.providers import (
+        HFInternVLProvider,
+        HFLLaVAProvider,
+        HFOCRProvider,
+        HFQwenVLProvider,
+    )
 
-    providers = {"llava": HFLLaVAProvider, "qwen": HFQwenVLProvider}
+    providers = {"llava": HFLLaVAProvider, "qwen": HFQwenVLProvider,
+                 "internvl": HFInternVLProvider}
     if args.provider not in providers:
         raise SystemExit(
             f"unknown --provider {args.provider!r}; choose from "
@@ -151,6 +157,7 @@ def build_provider(args):
         max_new_tokens=args.max_new_tokens,
         seed=args.seed,
         want_attention=args.want_attention,
+        max_pixels=getattr(args, "max_pixels", 0) or None,
         **extra,
     )
 
@@ -166,9 +173,14 @@ def build_second_provider(args):
     if not getattr(args, "second_model_path", ""):
         return None
 
-    from msrc.providers import HFLLaVAProvider, HFQwenVLProvider
+    from msrc.providers import (
+        HFInternVLProvider,
+        HFLLaVAProvider,
+        HFQwenVLProvider,
+    )
 
-    providers = {"llava": HFLLaVAProvider, "qwen": HFQwenVLProvider}
+    providers = {"llava": HFLLaVAProvider, "qwen": HFQwenVLProvider,
+                 "internvl": HFInternVLProvider}
     if args.second_provider not in providers:
         raise SystemExit(
             f"unknown --second-provider {args.second_provider!r}; choose from "
@@ -181,6 +193,7 @@ def build_second_provider(args):
         max_new_tokens=args.max_new_tokens,
         seed=args.seed,
         want_attention=False,
+        max_pixels=getattr(args, "max_pixels", 0) or None,
     )
 
 
@@ -194,7 +207,7 @@ def main() -> int:
     parser.add_argument(
         "--provider",
         default="llava",
-        choices=("llava", "qwen"),
+        choices=("llava", "qwen", "internvl"),
         help="which model family the checkpoint is; both produce the same signals",
     )
     parser.add_argument(
@@ -207,7 +220,7 @@ def main() -> int:
     parser.add_argument(
         "--second-provider",
         default="qwen",
-        choices=("llava", "qwen"),
+        choices=("llava", "qwen", "internvl"),
         help="which family --second-model-path is",
     )
     parser.add_argument(
@@ -240,6 +253,18 @@ def main() -> int:
              "alive and is the most expensive reading here",
     )
     parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument(
+        "--max-pixels",
+        type=int,
+        default=0,
+        help="0 leaves the checkpoint's own image budget alone. Qwen2-VL/Qwen2.5-VL "
+             "resize dynamically, and their default budget is large enough that a "
+             "24 MP figure becomes 65,536 patches -- a single 126 GiB allocation once "
+             "eager attention materialises the vision tower's matrix, which is what "
+             "visual_attention needs. 1280*28*28 is the budget Qwen's own cookbook "
+             "uses. It only binds on images above it, so COCO-sized inputs are "
+             "unaffected. LLaVA ignores it: it crops to a fixed 336.",
+    )
     parser.add_argument("--seed", type=int, default=20260920)
     parser.add_argument("--save-every", type=int, default=20)
     parser.add_argument(

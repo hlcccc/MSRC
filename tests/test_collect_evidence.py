@@ -447,6 +447,40 @@ def test_the_provider_flag_picks_the_architecture(tmp_path):
     assert qwen.dtype == "bfloat16", "the precision this checkpoint needs"
 
 
+def test_the_internvl_provider_targets_the_native_class(tmp_path):
+    """The ``-hf`` conversion is a different checkpoint, not a different name.
+
+    The original InternVL releases declare ``model_type: internvl_chat`` and ship
+    their own modelling code behind ``auto_map``. Under this transformers that code
+    cannot load at all -- ``InternVLChatModel`` has no ``all_tied_weights_keys`` --
+    and its tokenizer wants a ``sentencepiece`` older than 0.2 and its vision tower
+    wants ``timm``. The ``-hf`` conversions are ``model_type: internvl`` and are
+    implemented inside transformers, so this provider points at those. Getting it
+    wrong fails at ``from_pretrained``, which is the loud outcome; the quiet one
+    would be a model that loads with most of its weights newly initialised.
+    """
+    from msrc.providers import HFInternVLProvider
+
+    args = argparse.Namespace(
+        provider="internvl", model_path=str(tmp_path), no_ocr=True,
+        max_new_tokens=8, seed=1, want_attention=False,
+    )
+    provider = collector.build_provider(args)
+    assert isinstance(provider, HFInternVLProvider)
+    assert provider.model_class_name == "InternVLForConditionalGeneration"
+    assert "image_token_id" in provider.image_token_fields
+    second = collector.build_second_provider(
+        argparse.Namespace(
+            provider="internvl", model_path=str(tmp_path), no_ocr=True,
+            max_new_tokens=8, seed=1, want_attention=False, dtype="",
+            second_provider="internvl", second_model_path=str(tmp_path),
+            second_device="cpu",
+        )
+    )
+    assert isinstance(second, HFInternVLProvider)
+    assert second.want_attention is False
+
+
 def test_the_dtype_flag_overrides_the_default(tmp_path):
     """A CPU run has to be able to leave fp16 behind.
 
@@ -467,6 +501,37 @@ def test_the_dtype_flag_overrides_the_default(tmp_path):
     cpu = collector.build_provider(args_for(dtype="float32"))
     assert cpu.dtype == "float32"
     assert cpu.device == "cpu"
+
+
+def test_the_pixel_budget_reaches_both_model_roles(tmp_path):
+    """The budget has to be one number for the whole cell, not one per role.
+
+    `cross_model_agreement` compares the primary's answer with the second model's.
+    If the second model saw a different resolution than it would as a primary, the
+    column measures two different things depending on which cell it sits in, and a
+    cell that needed the cap would not be comparable with one that did not.
+    """
+    def args_for(**over):
+        base = dict(
+            provider="qwen", model_path=str(tmp_path), no_ocr=True, dtype="",
+            max_new_tokens=8, seed=1, want_attention=False, device="cpu",
+            max_pixels=0, second_provider="", second_model_path="",
+        )
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    assert collector.build_provider(args_for()).max_pixels is None, "0 means the model's own budget"
+
+    capped = collector.build_provider(args_for(max_pixels=1280 * 28 * 28))
+    assert capped.max_pixels == 1280 * 28 * 28
+
+    second = collector.build_second_provider(
+        args_for(second_provider="qwen", second_model_path=str(tmp_path),
+                 second_device="cpu", max_pixels=1280 * 28 * 28)
+    )
+    assert second is not None
+    assert second.max_pixels == 1280 * 28 * 28
+    assert second.want_attention is False, "the second model never reads attention"
 
 
 def test_an_unknown_provider_is_refused(tmp_path):
