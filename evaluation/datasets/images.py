@@ -1,9 +1,9 @@
 """Pulling an image out of a parquet cell.
 
-Two releases now store images three different ways -- raw bytes, a ``{"bytes": ...}``
-mapping (the HuggingFace datasets convention), a base64 string, or a path -- and both
-adapters need to cope with all of them. It lives here rather than in one adapter so
-the second one does not grow a near-copy that handles two of the four.
+Releases store images in more than one way -- raw bytes, a ``{"bytes": ...}``
+mapping (the HuggingFace datasets convention), a base64 string, or a path -- and the
+POPE adapter has to cope with all of them. Kept as its own module so the reading of
+those conventions sits in one place rather than inline in the adapter.
 """
 
 from __future__ import annotations

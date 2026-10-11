@@ -3,6 +3,88 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — benchmarks whose label reads the response
+
+Every benchmark here used to be one of two kinds: the label compares the response
+against accepted answers, or the response arrives as a published run with its label
+attached. CHAIR is neither. Its official rule scores the caption itself — it parses
+the object mentions, keeps the ones the COCO vocabulary recognises, and counts the
+ones COCO does not annotate for that image — so the label cannot exist until the
+response does. Collecting it the old way meant supplying a published caption, which
+skips the primary call and costs the three internal signals; the dataset would then
+be measured with five signals while every other dataset was measured with eight.
+
+### Added
+
+- `scripts/label_from_response.py` — the pass that closes the gap. It reads an
+  evidence file, scores every response with the rule named by `--rule`, and writes
+  the labels back. The CHAIRs implementation is a port of the official vocabulary
+  and rules, and it is checked against the real corpus: re-scoring 1,200 captions
+  that already carried official labels reproduced all 1,200 of them.
+- `tests/test_label_from_response.py`, including the bug that made the check worth
+  writing — CHAIR ids read `CHAIR:<n>:response:<k>`, where `n` is that dataset's own
+  index and not a COCO id. Read as a COCO id, every caption is scored against the
+  wrong image and the hallucination rate comes out at 0.996 instead of 0.44.
+- `inflect` joins the optional extras as `chair`, since the official vocabulary
+  singularises with it and a missing singulariser moves every count silently.
+
+### Changed
+
+- `scripts/collect_evidence.py` accepts `"label_from_response": true`. Such a record
+  is generated with the question left alone — a caption benchmark is not a
+  short-answer one — and written with `label` unset, which the script says out loud
+  at the end of the run. The old refusal still fires for any record that declares
+  neither an answer, nor accepted answers, nor this flag.
+- `scripts/label_from_response.py` refuses a file whose records already carry labels,
+  so one rule can never quietly overwrite another's work.
+
+## [Unreleased] — content-safety residue removed
+
+The content-safety family left this repository in the entry below, but the machinery
+that served it did not: the MM-SafetyBench adapter, the refusal-reading keyword
+judge, and the ASR scoring scripts all stayed, because a pipeline outside this
+repository was reading them. The tree therefore still described two risks while the
+model describes one — the 0.1.0 entry below records those files as *kept
+deliberately*. That decision is reversed here. Content-safety code now lives only in
+the separate module, so nothing under this tree serves a risk this repository does
+not model, and the factual path is unchanged.
+
+### Removed
+
+- `evaluation/datasets/mm_safety.py` — the MM-SafetyBench adapter: the
+  harmful-instruction parquet release into MSRC input records, plus
+  `stratified_sample` for a category-balanced set. The benchmark is a content-safety
+  one and the adapter labelled nothing; its records existed only as the input to the
+  out-of-repo labelling run.
+- `msrc/judge.py` — the keyword refusal classifier (`classify_refusal`,
+  `label_from_refusal`, `uncertain_rate`), whose own docstring already stated that it
+  was not part of the factual risk path.
+- `scripts/mmsafety_asr_judge.py` — the official MM-SafetyBench ASR judging prompts
+  and verdict parsing, for a local judge model standing in for the paper's GPT-4.
+- `scripts/apply_asr_labels.py` — turned those judge verdicts into the `label` field
+  of an evidence file, so the official ASR criterion could reach the indicator
+  instead of the keyword proxy.
+- the tests pinning the four modules above: `tests/test_dataset_mm_safety.py`,
+  `tests/test_mm_safety_sampling.py`, `tests/test_mmsafety_asr_judge.py`,
+  `tests/test_apply_asr_labels.py` and `tests/test_judge.py`.
+
+### Changed
+
+- `evaluation/datasets/__init__.py` no longer imports or exports `build_mm_safety`,
+  and its adapter table lists POPE only. `evaluation/datasets/images.py` stays — the
+  POPE adapter uses it — and only its rationale for being a shared module is
+  reworded, since there is no longer a second adapter to share with.
+- `scripts/group_report.py` and `docs/evaluation.md` no longer cite MM-SafetyBench's
+  harm categories as a second example of subsets that are not interchangeable.
+- `tests/test_groups.py` used an MM-SafetyBench row as a generic non-POPE fixture; it
+  now uses a TextVQA row. The assertion is unchanged, because that test covers
+  `image_group_id` — factual-path code that was not touched.
+- `pyproject.toml` drops the `content-safety` keyword and states in the description
+  that content-safety risk is modelled outside this repository.
+
+The eight signals, the calibration, the metrics and the rest of the factual path are
+untouched by this cleanup.
+
 ## [0.1.0] — unreleased
 
 First working version. The framework and its accounting are complete; the

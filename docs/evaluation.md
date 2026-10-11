@@ -136,7 +136,7 @@ python scripts/group_report.py --data evidence.jsonl --group-by split
 A pooled number over subsets that are not interchangeable describes no benchmark.
 POPE is the clearest case: `random`, `popular` and `adversarial` draw their negative
 examples differently, so pooling them makes the result depend on the mix ratio you
-happened to build. The same is true of MM-SafetyBench's harm categories.
+happened to build.
 
 Beside each group's accuracy it prints the **base rate** — what a system that never
 raises a warning scores on that group. It is the number an accuracy has to beat

@@ -5,7 +5,7 @@ A single pooled number can hide a subset where the method does not work at all, 
 on a benchmark whose subsets are not interchangeable it describes no benchmark. POPE
 is the clearest case -- `random`, `popular` and `adversarial` draw their negative
 examples differently, and pooling them makes the result depend on the mix ratio you
-happened to build -- but the same is true of MM-SafetyBench's harm categories.
+happened to build.
 
 For every value of the grouping field this prints, on the test split:
 

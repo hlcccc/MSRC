@@ -279,6 +279,58 @@ def test_a_generated_answer_is_labelled_against_the_gold(monkeypatch, tmp_path):
     assert [row["label"] for row in rows] == [1, 1]
 
 
+def test_a_response_labelled_rule_generates_the_answer_and_defers_the_label(
+    monkeypatch, tmp_path, capsys
+):
+    """CHAIR's label reads the caption, so it cannot exist before the caption does.
+
+    The third kind of benchmark: not "compare against a reference", not "supply
+    the published answer", but "an external scorer reads the response". The
+    collector must generate the response here -- that is the only call whose
+    internals are read -- leave the question alone (a caption benchmark is not a
+    short-answer one), and hand the labelling to the pass that owns the rule.
+    """
+    records = [
+        {"id": "c1", "question": "Please describe this image in detail.",
+         "image": "/a.png", "label_from_response": True},
+        {"id": "c2", "question": "Please describe this image in detail.",
+         "image": "/b.png", "label_from_response": True},
+    ]
+    rows = _run(monkeypatch, tmp_path, ["A toilet in a bathroom."], records)
+    out = capsys.readouterr().out
+
+    # the answer was generated, so the internals are there
+    for row in rows:
+        assert row["answer"] == "A toilet in a bathroom."
+        assert row["evidence"]["primary"]["sequence_confidence"] is not None
+        assert row["evidence"]["primary"]["visual_attention_mass"] is not None
+        # and no label was invented
+        assert row.get("label") is None
+    assert "carry no label yet" in out
+    assert "label_from_response.py" in out
+    # a file with pending labels is not a single-class run in disguise
+    assert "single-class" not in out
+
+
+def test_a_deferred_label_does_not_silence_the_missing_label_refusal(
+    monkeypatch, tmp_path
+):
+    """The escape hatch is the flag, not the absence of a label."""
+    source = tmp_path / "in.jsonl"
+    source.write_text(
+        json.dumps({"id": "f1", "question": "q", "image": "/a.png"}) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        collector, "build_provider", lambda args: StubProvider(answers=[RIGHT])
+    )
+    monkeypatch.setattr(sys, "argv", [
+        "collect_evidence.py", "--data", str(source), "--out", str(tmp_path / "o.jsonl"),
+        "--model-path", str(tmp_path), "--no-ocr", "--k", "1", "--save-every", "1",
+    ])
+    with pytest.raises(SystemExit, match="neither 'answer' nor 'gold_answers'"):
+        collector.main()
+
+
 def test_a_record_needs_an_answer_or_gold(monkeypatch, tmp_path):
     """Without either, the record cannot be labelled, and guessing is worse."""
     source = tmp_path / "in.jsonl"

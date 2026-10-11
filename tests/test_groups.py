@@ -86,9 +86,9 @@ def test_an_explicit_source_id_is_preferred_over_the_path():
 
 
 def test_a_non_pope_record_uses_its_declared_image_id():
-    row = {"dataset": "MM-SafetyBench", "image_id": "SD_TYPO/1.jpg", "image": "/a/1.jpg"}
+    row = {"dataset": "TextVQA", "image_id": "train2014/1.jpg", "image": "/a/1.jpg"}
 
-    assert image_group_id(row) == "mm-safetybench:SD_TYPO/1.jpg"
+    assert image_group_id(row) == "textvqa:train2014/1.jpg"
 
 
 def test_a_non_pope_record_without_an_explicit_id_falls_back_to_its_path():
