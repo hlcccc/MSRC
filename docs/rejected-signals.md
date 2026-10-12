@@ -212,5 +212,51 @@ this benchmark. Nothing was adopted.
 features lift CHAIR AUROC to 0.765 from 0.6256. The lift is mechanical — it encodes
 "more claims, more chances to be wrong" rather than anything about the image — and a
 method whose gain comes from a surface statistic would be reporting the statistic.
-Not adopted. (The object-level signal reaches 0.8199 on the same cell by reading the
+Not adopted. (The object-level signal reaches 0.8246 on the same cell by reading the
 objects, which is the reason the shortcut was unnecessary.)
+
+---
+
+## Buying more auxiliary readings for `object_support`
+
+**Idea.** Not a new signal but a bigger budget for an existing one. `object_support`
+reports the weakest mention rate among the objects the answer names, estimated from
+four re-phrasings plus K resamples. That rate carries sampling error, so seven readings
+instead of thirteen should cost accuracy — and on CHAIR, where `object_support` is the
+only signal doing any work, that looked like the cheapest route to the acceptance line.
+The planned collection was six extra resamples per item: about 5.5 GPU hours.
+
+**Measured first, on a CPU, on the dev half**, by `scripts/reading_budget.py`. Two
+estimators, because either alone is arguable:
+
+* the readings that already exist are subsampled without replacement for k = 2…7, and
+  the curve is fitted with `AUROC(k) = A - c/sqrt(k)` — the shape a rate's own standard
+  error predicts, which makes `A` the ceiling this signal reaches at any budget;
+* the readings are resampled **with** replacement so k can exceed what was collected.
+  At k = 7 that estimator has to reproduce the measured value, and it comes in
+  0.026 low, so it is a conservative check rather than a flattering one.
+
+**Result: not worth collecting.**
+
+| cell | collected | 13 readings predicted | ceiling `A` | accuracy gain |
+|---|---|---|---|---|
+| LLaVA-1.5-13B CHAIR | 7 | 0.8447 (from 0.8203) | **0.9118** | +1.2 points |
+| Qwen2.5-VL-7B CHAIR | 7 | 0.8567 (from 0.8395) | **0.9043** | +0.1 points |
+
+**Why, and what it implies.** A rate's error falls as `1/sqrt(k)`, so the returns are
+front-loaded: doubling the readings buys a factor of 1.41 in precision, not 2, and the
+measured curve is already most of the way to its own ceiling. The ceiling is the part
+that settles the question. Even at unlimited readings `object_support` tops out at
+AUROC 0.91 on LLaVA CHAIR, and the cell needs roughly 0.90 *after* fusion to clear 85%
+accuracy — so the whole budget would be spent arriving at the bar, not past it. Qwen
+CHAIR is worse: its test-label threshold ceiling is 85.0% with eleven signals and 85.3%
+with twelve, and the score at the accuracy-optimal point barely beats never warning
+(84.8% either way), which is a property of the ordering, not of how finely it is
+estimated.
+
+**What this rules out.** "The signal is noisy, collect more" as the explanation for the
+CHAIR shortfall. What remains is that the reading itself — does the model name the
+object again — saturates as evidence, because a model that consistently confuses one
+thing for another keeps naming it. That is the gap `cross_model_object_support` was
+added to attack from a different direction, and it is a genuinely independent source
+rather than more of the same one.
