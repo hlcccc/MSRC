@@ -135,8 +135,34 @@ item scores the same. The constant-column check drops it, which is the designed
 behaviour.
 
 **What would make it work.** The re-readings have to be descriptions, not one-word
-answers. That is what the free-description pilot collects, and the result is not in
-yet — this entry will be updated rather than left to imply an outcome.
+answers. That is what the free-description pilot collected.
+
+### The free-description pilot: stopped early, and why
+
+600 POPE images were re-asked four free-description questions each ("Describe this
+image in detail", "List the objects and people visible", and two paraphrases), and
+the queried object's mention rate across the four was the candidate signal.
+
+**Partial read at 120 images: AUROC 0.6368, standard error 0.084, 95% interval
+[0.472, 0.802].** The interval crosses 0.5, so it is not evidence of anything yet.
+
+The reason to stop rather than collect the rest is structural, not statistical:
+**76% of items (91 of 120) fell into a single bucket — the queried object was never
+mentioned in any of the four descriptions.** A short free description of a COCO image
+names a handful of salient objects, and the object POPE asks about is frequently not
+among them, so "not mentioned" carries almost no information and the signal sits near
+constant. Collecting 2,400 instead of 480 would not remove that; the probe's recall is
+the problem, not the sample size. Runs that stayed landed at 15.4% hallucinated in the
+never-mentioned bucket against 0% in the two buckets where it was mentioned — the
+direction is right and the separation is real, but the mass is in the wrong bucket.
+
+The collected 533 rows are kept at `p1_pope_desc.jsonl`; nothing was deleted. The
+GPU it held was reassigned to the first-step margin pilot, which is a different class
+of reading and had not been measured at all.
+
+**The design fix, if this is ever revisited.** Ask for high recall rather than a
+description — "list every object you can see" — so that absence becomes informative.
+That is a different collection, not more of this one.
 
 ---
 
