@@ -1,4 +1,4 @@
-"""The signal layer: eight independent readings, five external and three internal.
+"""The signal layer: nine independent readings, six external and three internal.
 
 Every signal obeys two invariants that the rest of the framework relies on:
 
@@ -19,6 +19,7 @@ Provenance, one line each:
 * ``typed_verification`` -- typed evidence probing; QACD's direct verification
 * ``cross_model_agreement`` -- cross-model / judge agreement
 * ``grounding_check``    -- retrieval- and rule-grounded checking
+* ``object_support``     -- object-level cross-view support (see msrc.object_support)
 * ``sequence_confidence`` -- mean token probability; LLM-Check, SAPLMA
 * ``output_entropy``     -- mean per-step output entropy
 * ``visual_attention``   -- attention mass on image tokens
@@ -30,6 +31,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence
 
+from msrc.object_support import ObjectLexicon, default_lexicon, object_min_support
 from msrc.types import (
     SIGNAL_EXTERNAL,
     SIGNAL_INTERNAL,
@@ -47,6 +49,7 @@ __all__ = [
     "agreement",
     "cluster_entropy",
     "SIGNAL_NAMES",
+    "ObjectSupport",
 ]
 
 # ---------------------------------------------------------------------------
@@ -441,6 +444,68 @@ class GroundingCheck(Signal):
         )
 
 
+class ObjectSupport(Signal):
+    """Does every object the answer names survive a second look at the image?
+
+    Caption-level agreement is too coarse to catch a single invented object: two
+    descriptions of the same bathroom agree about the toilet and the shower whether
+    or not one of them also invented a mirror. This signal reads the objects out of
+    the answer, asks of each how often it returns across the re-phrasings and
+    resamples, and reports the *weakest* rate. An object the model saw comes back
+    nearly every time; one it invented rarely does.
+
+    The direction is supplied here: ``risk = 1 - min_support``.
+
+    Unavailable -- not zero -- when the answer names no object in the lexicon, which
+    is the normal outcome for a yes/no or short-answer dataset. The lexicon and its
+    two caveats are documented in :mod:`msrc.object_support`.
+    """
+
+    name = "object_support"
+    kind = SIGNAL_EXTERNAL
+    description = "weakest cross-view mention rate among the objects the answer names"
+
+    def __init__(self, lexicon: Optional[ObjectLexicon] = None) -> None:
+        #: Injected in tests; otherwise resolved lazily so that importing the
+        #: registry never depends on a file being present.
+        self._lexicon = lexicon
+
+    def _resolved(self) -> ObjectLexicon:
+        return self._lexicon if self._lexicon is not None else default_lexicon()
+
+    def compute(self, ev: Evidence) -> SignalValue:
+        try:
+            lexicon = self._resolved()
+        except (OSError, ValueError) as exc:
+            return self.unavailable(f"object lexicon unusable: {exc}")
+
+        answer = ev.answer or ev.primary.text
+        if not answer:
+            return self.unavailable("empty answer")
+
+        auxiliary = ev.texts("views") + ev.texts("resamples")
+        reading = object_min_support(answer, auxiliary, lexicon)
+        if reading is None:
+            if len(auxiliary) < 2:
+                return self.unavailable(
+                    "needs at least 2 view/resample generations to re-read the image"
+                )
+            return self.unavailable("answer names no object from the lexicon")
+
+        support, n_named, weakest = reading
+        returned = round(support * len(auxiliary))
+        return SignalValue(
+            name=self.name,
+            kind=self.kind,
+            risk=1.0 - support,
+            raw=support,
+            detail=(
+                f"weakest of {n_named} named objects is {weakest!r}, which returned in "
+                f"{returned}/{len(auxiliary)} re-readings of the image"
+            ),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Internal signals
 # ---------------------------------------------------------------------------
@@ -545,6 +610,7 @@ ALL_SIGNALS: List[Signal] = [
     TypedVerification(),
     CrossModelAgreement(),
     GroundingCheck(),
+    ObjectSupport(),
     SequenceConfidence(),
     OutputEntropy(),
     VisualAttention(),

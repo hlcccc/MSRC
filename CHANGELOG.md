@@ -3,6 +3,74 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — the ninth signal: object-level support
+
+Caption-level agreement is the wrong resolution for a caption hallucination. Two
+descriptions of the same bathroom agree about the toilet, the shower and the sink
+whether or not one of them also invented a mirror, so `self_consistency` and
+`resample_consistency` barely move while the one false claim is exactly the one that
+matters. On CHAIR the fused score ranked hallucinations at AUROC 0.63, which is
+close to the 0.50 of a coin and far below anything usable.
+
+The new signal drops to the object level. It reads the objects the answer names out
+of a lexicon, asks of each how often it returns across the four re-phrasings and
+three resamples, and reports the **weakest** rate: a caption is only as trustworthy
+as its least supported claim.
+
+Measured on the full 1,200-item CHAIR split, dev-selected threshold and test-half
+reporting, which is the same protocol every other number in this repository uses:
+
+| | AUROC | accuracy | recall |
+|---|---|---|---|
+| before | 0.6256 | 57.50% | 18.1% |
+| after | **0.8199** | **76.17%** | **72.31%** |
+
+Qwen2.5-VL-7B on the same split moves from AUROC 0.5849 to 0.8050. The threshold
+sweep puts the best accuracy *any* threshold can reach on test at 0.7700, so the
+remaining shortfall against an 85% bar is a limit of the score, not of the operating
+point — the distinction `threshold_analysis.py` exists to make.
+
+### Added
+
+- `msrc/object_support.py` — lexicon loading, mention extraction, and the
+  minimum-support reading, all pure functions of ``Evidence`` so the signal is
+  testable with no model and no GPU.
+- `references/chair_synonyms.txt` — the official CHAIR synonym list (COCO's 80
+  categories plus surface forms), bundled so the repository is self-contained.
+  `MSRC_OBJECT_LEXICON` points the signal at a different ontology.
+- `ObjectSupport` in the signal registry, as the sixth external signal.
+- `tests/test_object_support.py` — 17 tests. The two properties worth pinning are
+  that the reading is oriented (an object that never returns raises risk) and that an
+  unanswerable item reports itself unavailable rather than scoring zero.
+- the `textvqa` extra, declaring `tqdm`. The vendored M4C evaluator imports it at
+  module scope, so `--textvqa-label-rule official` could not even be imported on a
+  clean install. Found by running the suite in a fresh virtualenv; the development
+  machine had `tqdm` by accident.
+
+### Changed
+
+- the signal inventory is nine (six external, three internal). Counts in the README,
+  `docs/evaluation.md`, the CLI examples and the tests move with it.
+
+### Known limits, stated here rather than discovered later
+
+- **The lexicon is COCO's ontology, and on CHAIR so is the label.** They share a
+  vocabulary but not annotations: the label comes from per-image COCO instance
+  annotations, the signal from the model's own re-descriptions. Treated as a plain
+  noun filter with no synonym merging the signal still reaches AUROC 0.78 against
+  0.82 with merging, so part of the strength is the ontology and part is the
+  mechanism. Both numbers belong in any report that quotes one.
+- **Availability is dataset-dependent, and low availability is the honest outcome.**
+  On CHAIR the signal reads 97% of items (85% for Qwen2.5-VL-7B). On POPE it reads
+  99.8% of items and is *constant*: the primary answer is a sentence but the
+  re-phrasings are one-word "Yes"/"No", so nothing ever returns and every item scores
+  the same. The constant-column check drops it there, which is the designed
+  behaviour. On HallusionBench and TextVQA the answers rarely name objects at all.
+- **`cross_model` is deliberately not part of the auxiliary set.** Adding it lifts
+  the single-signal AUROC from 0.8204 to 0.8280, which is not worth making a second
+  signal depend on the second model — the repository already promises that attaching
+  one buys exactly one signal, and a test enforces it.
+
 ## [Unreleased] — the TextVQA label rule the reported number uses
 
 `references/m4c_evaluator.py` has been vendored here for a while, and the reported

@@ -40,11 +40,11 @@ from msrc.types import (  # noqa: E402
 def test_the_signal_inventory_is_what_the_readme_claims():
     external = [s for s in ALL_SIGNALS if s.kind == SIGNAL_EXTERNAL]
     internal = [s for s in ALL_SIGNALS if s.kind == SIGNAL_INTERNAL]
-    assert len(external) == 5, [s.name for s in external]
+    assert len(external) == 6, [s.name for s in external]
     assert len(internal) == 3, [s.name for s in internal]
 
 
-def test_the_declared_inventory_is_exactly_the_eight_signals():
+def test_the_declared_inventory_is_exactly_the_nine_signals():
     """Named, and in the order that fixes the fitted matrix's columns.
 
     The order is part of the contract: a fitted scorer's coefficients are applied
@@ -52,46 +52,45 @@ def test_the_declared_inventory_is_exactly_the_eight_signals():
     """
     assert [s.name for s in ALL_SIGNALS] == [
         "self_consistency", "resample_consistency", "typed_verification",
-        "cross_model_agreement", "grounding_check", "sequence_confidence",
-        "output_entropy", "visual_attention",
+        "cross_model_agreement", "grounding_check", "object_support",
+        "sequence_confidence", "output_entropy", "visual_attention",
     ]
 
 
 def test_only_one_signal_needs_a_second_model():
     """A second VLM is a real deployment cost; it must buy exactly one signal.
 
-    Built with full external evidence and no internals, so the unavailable set is
-    the second-model signal plus the three internal ones -- nothing else.
+    Built with full external evidence and no internals. The answer names an object
+    so that ``object_support`` can read the re-lookings, which keeps the unavailable
+    set to the second-model signal plus the three internal ones -- nothing else.
     """
-    evidence = Evidence(
-        question="q", answer="Flickr", primary=Sample(text="Flickr"),
-        views=[Sample(text="Flickr")],
-        resamples=[Sample(text="Flickr"), Sample(text="Flickr")],
+    external_only = dict(
+        question="q", answer="a car",
+        views=[Sample(text="a car")],
+        resamples=[Sample(text="a car"), Sample(text="a car")],
         verifications=[Sample(text="yes")],
-        ocr_texts=["Flickr"],
+        ocr_texts=["a car"],
     )
+    evidence = Evidence(primary=Sample(text="a car"), **external_only)
     report = build_report(evidence)
     assert sorted(report.missing()) == [
         "cross_model_agreement", "output_entropy", "sequence_confidence", "visual_attention",
     ]
-    assert len(report.available()) == 4, "four external signals are live here"
+    assert len(report.available()) == 5, "five external signals are live here"
 
     # Now give the internals, which is the only thing a single model at full
     # access adds -- the second-model signal stays unavailable.
     with_internals = Evidence(
-        question="q", answer="Flickr",
-        primary=Sample(text="Flickr", sequence_confidence=0.9, sequence_entropy=0.3,
+        primary=Sample(text="a car", sequence_confidence=0.9, sequence_entropy=0.3,
                        visual_attention_mass=0.5),
-        views=[Sample(text="Flickr")],
-        resamples=[Sample(text="Flickr"), Sample(text="Flickr")],
-        verifications=[Sample(text="yes")],
-        ocr_texts=["Flickr"],
+        **external_only,
     )
     live = build_report(with_internals)
-    # Four external that need no second model, plus the three internal: seven.
-    assert len(live.available()) == 7, [s.name for s in live.available()]
+    # Five external that need no second model, plus the three internal: eight.
+    assert len(live.available()) == 8, [s.name for s in live.available()]
     assert live.missing() == ["cross_model_agreement"]
     assert sum(1 for s in live.available() if s.kind == SIGNAL_INTERNAL) == 3
+    assert any(s.name == "object_support" for s in live.available())
 
 
 def test_signal_names_are_unique_and_populated():
@@ -172,9 +171,12 @@ def test_cross_model_signal_is_unavailable_without_a_second_model():
 def test_unavailable_signals_enter_the_vector_as_zero_but_are_named():
     """External evidence present, internals and the second model absent.
 
-    The four that cannot run must say so by name. The alternative -- filling them
+    The ones that cannot run must say so by name. The alternative -- filling them
     with a neutral value -- produces a constant column and a calibrator that looks
     healthy while encoding nothing.
+
+    ``object_support`` is among the missing here on purpose: the answer is the word
+    "Flickr", which names no object in the lexicon. That is the designed outcome.
     """
     evidence = Evidence(
         question="q", answer="Flickr", primary=Sample(text="Flickr"),
@@ -185,15 +187,16 @@ def test_unavailable_signals_enter_the_vector_as_zero_but_are_named():
     )
     report = build_report(evidence)
     assert sorted(report.missing()) == [
-        "cross_model_agreement", "output_entropy", "sequence_confidence", "visual_attention",
+        "cross_model_agreement", "object_support", "output_entropy",
+        "sequence_confidence", "visual_attention",
     ], report.missing()
     assert len(report.available()) == 4
-    assert len(report.vector()) == len(report.signals) == 8
+    assert len(report.vector()) == len(report.signals) == 9
 
 
 def test_every_signal_missing_when_there_is_no_evidence_at_all():
     report = build_report(Evidence(question="q", answer="a", primary=Sample(text="a")))
-    assert len(report.missing()) == len(report.signals) == 8
+    assert len(report.missing()) == len(report.signals) == 9
     assert report.available() == []
 
 

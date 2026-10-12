@@ -41,6 +41,11 @@ datasets = ["pandas>=1.5", "pyarrow>=12.0"]
 # stops matching plurals, so every hallucination count moves while the run still
 # looks like it worked. Declared rather than assumed.
 chair = ["inflect>=6.0"]
+# The vendored TextVQA official answer-normalisation rule. It imports tqdm at
+# module scope, so `scripts/evaluate.py --textvqa-label-rule official` cannot even
+# be imported without it. Found by running the suite in a clean environment: the
+# development machine had tqdm by accident, from an unrelated install.
+textvqa = ["tqdm>=4.60"]
 test = [
     "pytest>=7.0",
     "pandas>=1.5",
@@ -49,6 +54,7 @@ test = [
     "pydantic>=2.0",
     "httpx",
     "inflect>=6.0",
+    "tqdm>=4.60",
 ]
 
 [project.scripts]

@@ -200,7 +200,7 @@ def test_the_signal_set_is_pinned_between_fit_and_score():
 def test_provenance_records_what_was_fitted():
     pipe = _pipeline()
     _fit(pipe, _records())
-    assert pipe.provenance["n_signals"] == 8
+    assert pipe.provenance["n_signals"] == 9
     assert pipe.provenance["n_internal_signals"] == 3
     assert pipe.provenance["provider"] == "stub"
 
@@ -212,7 +212,7 @@ def test_scorer_round_trips_through_json(tmp_path):
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["format"] == "msrc-scorer"
-    assert payload["provenance"]["n_signals"] == 8
+    assert payload["provenance"]["n_signals"] == 9
 
     reloaded = MSRCPipeline.load(path)
     hardcoded = {"question": "q", "answer": "Flickr", "image": "/i.jpg"}
