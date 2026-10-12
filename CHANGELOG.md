@@ -98,6 +98,13 @@ opposite risks.
 - `DecisionMargin` in the signal registry, as the fourth internal signal.
 - `tests/test_decision_margin.py` — 10 tests covering orientation, clamping, the
   disagreement with mean confidence, and the round trip through JSON.
+- `tests/test_decision_margin_extraction.py` — 8 tests against the tensor code that
+  actually produces the number, skipped where torch is absent. The signal's own
+  tests feed it a float, so a wrong index or a swapped top-2 in `_from_scores` would
+  have survived every one of them and only shown up as a useless column in a
+  collection run. The load-bearing case is the torn-then-easy one: a hesitant first
+  step followed by confident boilerplate must still read as torn while the mean
+  confidence stays high, which is the entire reason the signal exists.
 
 ### Changed
 
