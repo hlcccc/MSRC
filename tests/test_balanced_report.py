@@ -190,3 +190,102 @@ def test_the_verdict_hangs_on_plain_accuracy_not_on_balanced(tmp_path, capsys):
     cell = payload["cells"][0]
     assert cell["passes"] == (cell["accuracy"] >= 0.85)
     assert "accuracy_ceiling" in cell
+
+
+# -- the cell manifest -----------------------------------------------------
+#
+# The mapping from cell to evidence file used to live only in shell scripts on the
+# collecting machine, so the headline table could be read but not re-run. These pin
+# the file that replaced it, and the path handling that makes it portable.
+
+def test_a_cell_spec_splits_into_three_parts():
+    assert br.parse_cell_spec("LLaVA-1.5-13B|POPE=/tmp/a.jsonl") == (
+        "LLaVA-1.5-13B", "POPE", "/tmp/a.jsonl")
+
+
+def test_a_cell_spec_without_a_dataset_is_refused():
+    with pytest.raises(SystemExit):
+        br.parse_cell_spec("LLaVA-1.5-13B=/tmp/a.jsonl")
+
+
+def test_relative_paths_in_a_manifest_hang_off_the_root(tmp_path):
+    root = tmp_path / "run"
+    manifest = tmp_path / "cells.json"
+    manifest.write_text(json.dumps({
+        "root": str(root),
+        "cells": [{"model": "M", "dataset": "D", "path": "sub/a.jsonl"}],
+    }), encoding="utf-8")
+    assert br.cells_from_manifest(manifest) == [
+        ("M", "D", str(root / "sub" / "a.jsonl"))]
+
+
+def test_an_absolute_path_in_a_manifest_ignores_the_root(tmp_path):
+    """A cell collected somewhere else is not silently looked for under the root."""
+    elsewhere = tmp_path / "elsewhere" / "a.jsonl"
+    manifest = tmp_path / "cells.json"
+    manifest.write_text(json.dumps({
+        "root": str(tmp_path / "run"),
+        "cells": [{"model": "M", "dataset": "D", "path": str(elsewhere)}],
+    }), encoding="utf-8")
+    assert br.cells_from_manifest(manifest) == [("M", "D", str(elsewhere))]
+
+
+def test_a_manifest_without_a_root_uses_the_paths_as_given(tmp_path):
+    absolute = tmp_path / "abs" / "a.jsonl"
+    manifest = tmp_path / "cells.json"
+    manifest.write_text(json.dumps(
+        [{"model": "M", "dataset": "D", "path": str(absolute)}]), encoding="utf-8")
+    assert br.cells_from_manifest(manifest) == [("M", "D", str(absolute))]
+
+
+def test_a_manifest_entry_missing_a_field_names_the_entry(tmp_path):
+    manifest = tmp_path / "cells.json"
+    manifest.write_text(json.dumps(
+        {"cells": [{"model": "M", "dataset": "D", "path": "a.jsonl"},
+                   {"model": "M", "path": "b.jsonl"}]}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="cell 1"):
+        br.cells_from_manifest(manifest)
+
+
+def test_an_empty_manifest_is_refused(tmp_path):
+    manifest = tmp_path / "cells.json"
+    manifest.write_text(json.dumps({"cells": []}), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        br.cells_from_manifest(manifest)
+
+
+def test_no_cells_at_all_is_refused():
+    with pytest.raises(SystemExit):
+        br.main([])
+
+
+def test_a_manifest_drives_the_table(tmp_path, capsys):
+    path = _write_cell(tmp_path, "one.jsonl", separable=True)
+    manifest = tmp_path / "cells.json"
+    manifest.write_text(json.dumps(
+        {"cells": [{"model": "M", "dataset": "D", "path": str(path)}]}), encoding="utf-8")
+    assert br.main(["--manifest", str(manifest), "--json"]) == 0
+    text = capsys.readouterr().out
+    payload = json.loads(text[text.index("{", text.index("{")):])
+    assert [(c["model"], c["dataset"]) for c in payload["cells"]] == [("M", "D")]
+
+
+def test_the_repository_manifest_lists_every_model_and_dataset():
+    """The table's own manifest: three models, the same datasets, paths present.
+
+    A cell whose file does not exist yet is still listed -- the report prints it as
+    missing, which is the point. A table that quietly loses rows is how a shortfall
+    stops being visible.
+    """
+    manifest = ROOT / "runs" / "cells.json"
+    assert manifest.is_file(), manifest
+    cells = br.cells_from_manifest(manifest)
+    models = {model for model, _, _ in cells}
+    assert models == {"LLaVA-1.5-13B", "Qwen2.5-VL-7B", "InternVL3-8B"}
+    datasets = {dataset for _, dataset, _ in cells}
+    assert {"POPE", "TextVQA", "CHAIR", "HallusionBench", "OKVQA"} <= datasets
+    for model in models:
+        for dataset in datasets:
+            assert any(m == model and d == dataset for m, d, _ in cells), (model, dataset)
+    assert all(path.endswith(".jsonl") for _, _, path in cells)
+    assert len(cells) == len(set(cells)), "a cell is listed twice"

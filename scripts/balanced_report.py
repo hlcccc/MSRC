@@ -11,8 +11,19 @@ operating point or the score.
         --cell "LLaVA-1.5-13B|POPE=evidence_pope_official9000.jsonl" \
         --cell "LLaVA-1.5-13B|CHAIR=evidence_chair.jsonl"
 
-Each ``--cell`` is ``MODEL|DATASET=PATH``. Thresholds are chosen on the dev half by
-balanced accuracy and reported on the test half; the split is by real image
+or, for the whole table at once, from the manifest of which file backs which cell:
+
+    python scripts/balanced_report.py --manifest runs/cells.json
+
+Each ``--cell`` is ``MODEL|DATASET=PATH``. The manifest is the same thing in a file,
+with one ``root`` that relative paths hang off, so the table can be regenerated on the
+collecting machine without retyping fifteen paths -- the mapping used to live only in
+ad-hoc shell scripts, which made the table readable but not re-runnable. A cell whose
+file is not there yet is printed as missing rather than dropped, because a table that
+silently loses rows is how a shortfall stops being visible.
+
+Thresholds are chosen on the dev half by
+accuracy and reported on the test half; the split is by real image
 identity, so the same picture never lands on both sides. Nothing here touches a
 model, and nothing chooses anything on the test half.
 
@@ -97,12 +108,46 @@ def best_threshold(scores, labels, grid=GRID, rule: str = "accuracy") -> float:
     return float(grid[len(grid) - 1 - int(values[::-1].argmax())])
 
 
+def parse_cell_spec(spec: str) -> tuple:
+    """``MODEL|DATASET=PATH`` into its three parts, or a refusal that says why."""
+    if "=" not in spec or "|" not in spec.split("=", 1)[0]:
+        raise SystemExit(f"--cell must be MODEL|DATASET=PATH, got {spec!r}")
+    head, raw_path = spec.split("=", 1)
+    model, dataset = head.split("|", 1)
+    return model, dataset, raw_path
+
+
+def cells_from_manifest(path: Path) -> list:
+    """Read the cell list out of a manifest file.
+
+    Shape: ``{"root": "...", "cells": [{"model", "dataset", "path"}, ...]}``. ``root``
+    is optional; a relative ``path`` is resolved against it. Every entry is checked
+    here rather than half-way through the table, so a typo names the entry it is in.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    entries = payload.get("cells") if isinstance(payload, dict) else payload
+    if not entries:
+        raise SystemExit(f"{path} holds no cells")
+    root = Path(payload.get("root", "") if isinstance(payload, dict) else "").expanduser()
+    cells = []
+    for index, entry in enumerate(entries):
+        missing = [k for k in ("model", "dataset", "path") if not entry.get(k)]
+        if missing:
+            raise SystemExit(f"{path}: cell {index} is missing {missing}")
+        candidate = Path(str(entry["path"])).expanduser()
+        cells.append((str(entry["model"]), str(entry["dataset"]),
+                      str(candidate if candidate.is_absolute() or not str(root) else root / candidate)))
+    return cells
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--cell", action="append", required=True,
-                        metavar="MODEL|DATASET=PATH")
+    parser.add_argument("--cell", action="append", default=[], metavar="MODEL|DATASET=PATH")
+    parser.add_argument("--manifest", metavar="PATH",
+                        help="a JSON file listing the cells; see runs/cells.json. "
+                             "Combine with --cell to add to it")
     parser.add_argument("--dev-fraction", type=float, default=DEFAULT_DEV_FRACTION)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--l2", type=float, default=0.05)
@@ -114,12 +159,19 @@ def main(argv=None) -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
+    if not args.cell and not args.manifest:
+        raise SystemExit("give at least one --cell, or --manifest")
+
+    specs = list(args.cell)
+    if args.manifest:
+        manifest_path = Path(args.manifest).expanduser()
+        if not manifest_path.is_file():
+            raise SystemExit(f"--manifest not found: {manifest_path}")
+        specs = [f"{m}|{d}={p}" for m, d, p in cells_from_manifest(manifest_path)] + specs
+
     out = []
-    for spec in args.cell:
-        if "=" not in spec or "|" not in spec.split("=", 1)[0]:
-            raise SystemExit(f"--cell must be MODEL|DATASET=PATH, got {spec!r}")
-        head, raw_path = spec.split("=", 1)
-        model, dataset = head.split("|", 1)
+    for spec in specs:
+        model, dataset, raw_path = parse_cell_spec(spec)
         path = Path(raw_path).expanduser()
         if not path.is_file():
             print(f"  {model:<14} {dataset:<14}  文件缺失（{path}）")
