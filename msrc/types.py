@@ -46,6 +46,10 @@ class Sample:
     sequence_entropy: Optional[float] = None
     #: Attention mass on image tokens, when the stack exposes attentions.
     visual_attention_mass: Optional[float] = None
+    #: ``p(top-1) - p(top-2)`` at the **first** generated step, in ``[0, 1]``.
+    #: Not a summary of ``sequence_confidence``: the mean is taken across the whole
+    #: answer, the margin only across the one position where the model committed.
+    first_token_margin: Optional[float] = None
     meta: Dict[str, Any] = field(default_factory=dict)
 
 

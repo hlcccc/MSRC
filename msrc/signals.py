@@ -1,4 +1,4 @@
-"""The signal layer: nine independent readings, six external and three internal.
+"""The signal layer: ten independent readings, six external and four internal.
 
 Every signal obeys two invariants that the rest of the framework relies on:
 
@@ -22,6 +22,7 @@ Provenance, one line each:
 * ``object_support``     -- object-level cross-view support (see msrc.object_support)
 * ``sequence_confidence`` -- mean token probability; LLM-Check, SAPLMA
 * ``output_entropy``     -- mean per-step output entropy
+* ``decision_margin``    -- top-1 minus top-2 probability at the first step
 * ``visual_attention``   -- attention mass on image tokens
 """
 
@@ -50,6 +51,7 @@ __all__ = [
     "cluster_entropy",
     "SIGNAL_NAMES",
     "ObjectSupport",
+    "DecisionMargin",
 ]
 
 # ---------------------------------------------------------------------------
@@ -98,6 +100,7 @@ class Evidence:
                 "sequence_confidence": s.sequence_confidence,
                 "sequence_entropy": s.sequence_entropy,
                 "visual_attention_mass": s.visual_attention_mass,
+                "first_token_margin": s.first_token_margin,
             }
 
         return {
@@ -138,6 +141,7 @@ class Evidence:
                 sequence_confidence=d.get("sequence_confidence"),
                 sequence_entropy=d.get("sequence_entropy"),
                 visual_attention_mass=d.get("visual_attention_mass"),
+                first_token_margin=d.get("first_token_margin"),
             )
 
         def sample_list(value: object, field: str) -> List[Sample]:
@@ -598,6 +602,45 @@ class VisualAttention(Signal):
         )
 
 
+class DecisionMargin(Signal):
+    """How decisively the model committed at the first generated token.
+
+    ``sequence_confidence`` averages the token probabilities over the whole answer,
+    which on a yes/no benchmark is mostly boilerplate: "Yes, there is a snowboarder
+    in the image, riding down a snow-covered slope" averages one hard decision
+    together with twenty easy tokens. The mean therefore stays high on items the
+    model actually guessed at.
+
+    This signal reads only the first step, and reads the runner-up as well as the
+    winner: ``margin = p(top-1) - p(top-2)``. A model that was certain puts almost
+    all of its mass on one token and the margin is near 1; a model torn between
+    "Yes" and "No" splits the mass and the margin collapses toward 0. Direction is
+    supplied here -- ``risk = 1 - margin`` -- so an indecisive commitment is the
+    risky one.
+
+    Unavailable, not zero, when the serving stack exposes no per-step scores.
+    """
+
+    name = "decision_margin"
+    kind = SIGNAL_INTERNAL
+    description = "probability gap between the top two tokens at the first step"
+
+    def compute(self, ev: Evidence) -> SignalValue:
+        margin = ev.primary.first_token_margin
+        if margin is None:
+            return self.unavailable(
+                "serving stack exposes no per-step scores (internal signal unavailable)"
+            )
+        margin = min(max(float(margin), 0.0), 1.0)
+        return SignalValue(
+            name=self.name,
+            kind=self.kind,
+            risk=1.0 - margin,
+            raw=margin,
+            detail=f"first-step top-1 minus top-2 probability = {margin:.4f}",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -613,6 +656,7 @@ ALL_SIGNALS: List[Signal] = [
     ObjectSupport(),
     SequenceConfidence(),
     OutputEntropy(),
+    DecisionMargin(),
     VisualAttention(),
 ]
 

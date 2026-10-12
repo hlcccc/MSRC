@@ -25,7 +25,7 @@ generates the answer under evaluation, captures its internals, and labels it:
 
     {"question": ..., "image": ..., "gold_answers": ["...", "..."]}
 
-This is the shape that lets all eight signals run, and it is the honest one: the
+This is the shape that lets all ten signals run, and it is the honest one: the
 answer is produced by the model under test in a call whose internals are recorded
 as they happen.
 
@@ -368,7 +368,7 @@ def main() -> int:
             "and no internals are captured for it:"
         )
         print(
-            "[collect]       sequence_confidence, output_entropy and visual_attention "
+            "[collect]       sequence_confidence, output_entropy, decision_margin and visual_attention "
             "will be unavailable on those items."
         )
         print(

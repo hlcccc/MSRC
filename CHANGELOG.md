@@ -3,6 +3,48 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — the tenth signal: first-step decision margin
+
+`sequence_confidence` averages the token probabilities over the whole answer, and on
+a yes/no benchmark almost all of that answer is boilerplate. "Yes, there is a
+snowboarder in the image, riding down a snow-covered slope" averages one hard
+decision together with twenty easy tokens, so the mean stays comfortable on items the
+model actually guessed at. On POPE the reading is AUROC 0.639.
+
+The new signal reads only the position where the model committed, and reads the
+loser as well as the winner: ``margin = p(top-1) - p(top-2)`` at the first generated
+step. Certainty puts nearly all the mass on one token and the margin approaches 1; a
+model torn between "Yes" and "No" splits the mass and the margin collapses. Risk is
+``1 - margin``, so an indecisive commitment is the risky one.
+
+It is a genuinely different reading from the mean confidence, not a summary of it,
+and the tests pin that: same mean confidence with opposite margins must produce
+opposite risks.
+
+### Added
+
+- `Sample.first_token_margin`, populated by the Hugging Face vision provider from the
+  per-step scores it already requests, and carried through the evidence JSONL.
+  Evidence cached before this release lacks the key and still loads -- the accessor
+  returns ``None``, which the signal reports as unavailable rather than as a
+  placeholder.
+- `DecisionMargin` in the signal registry, as the fourth internal signal.
+- `tests/test_decision_margin.py` — 10 tests covering orientation, clamping, the
+  disagreement with mean confidence, and the round trip through JSON.
+
+### Changed
+
+- the signal inventory is ten (six external, four internal). Counts in the README,
+  `docs/evaluation.md`, the CLI examples, the collector's startup message and the
+  tests move with it.
+
+### Not yet measured
+
+The margin needs a fresh collection run to exist in the evidence, so **no evaluation
+number is claimed for it here**. The columns in every cached evidence file are from
+before it existed. Reporting a gain from it before re-running would be reporting a
+number that does not exist yet.
+
 ## [Unreleased] — the ninth signal: object-level support
 
 Caption-level agreement is the wrong resolution for a caption hallucination. Two

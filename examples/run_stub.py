@@ -9,7 +9,7 @@ plausible readings on every channel, so the script runs the identical data twice
     The three internal signals and the cross-model signal report themselves
     unavailable; four signals carry the score.
   * **with generation-time internals** -- the platform recorded the logprobs and
-    attention of the call that produced the answer. Eight of the nine signals run;
+    attention of the call that produced the answer. Nine of the ten signals run;
     the cross-model one still needs a second model.
 
 The difference between the two runs is the point of the framework.

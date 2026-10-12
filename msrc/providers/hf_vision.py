@@ -7,6 +7,7 @@ worth being explicit about what each one is and what it costs.
 signal                       where it comes from                          extra cost
 ===========================  ==========================================  ==========
 ``sequence_confidence``      mean probability of the tokens generated     none
+``decision_margin``          top-1 minus top-2 probability at step 1        none
 ``output_entropy``           mean entropy of each step's distribution     none
 ``visual_attention``         attention mass on the image token span       a forward
 ===========================  ==========================================  ==========
@@ -275,7 +276,7 @@ class HFVisionLanguageProvider:
         gen_ids = output.sequences[0][prompt_len:]
         decoded = self._processor.decode(gen_ids, skip_special_tokens=True).strip()
 
-        confidence, entropy = self._from_scores(output, gen_ids, torch)
+        confidence, entropy, margin = self._from_scores(output, gen_ids, torch)
         attention = (
             self._visual_attention_mass(
                 output, inputs, prompt_len, self.image_token_id()
@@ -308,22 +309,32 @@ class HFVisionLanguageProvider:
             sequence_confidence=confidence,
             sequence_entropy=entropy,
             visual_attention_mass=attention,
+            first_token_margin=margin,
             meta={"prompt_len": prompt_len, "generated": int(len(gen_ids))},
         )
 
     @staticmethod
-    def _from_scores(output: Any, gen_ids: Any, torch: Any) -> tuple[Optional[float], Optional[float]]:
-        """Mean token probability and mean per-step entropy, or ``(None, None)``.
+    def _from_scores(output: Any, gen_ids: Any, torch: Any) -> tuple[Optional[float], Optional[float], Optional[float]]:
+        """Mean token probability, mean per-step entropy, and the first-step margin.
 
         Returning ``None`` rather than a default is the whole point: a placeholder
-        would make both internal signals constant and the calibrator would fit a
+        would make the internal signals constant and the calibrator would fit a
         column that encodes nothing.
+
+        The margin is ``p(top-1) - p(top-2)`` at the **first** generated step, and
+        it is a different reading from the mean confidence, not a summary of it. On
+        a yes/no benchmark the mean is taken over a whole sentence of boilerplate
+        ("Yes, there is a snowboarder in the image, riding down a ..."), which
+        dilutes the one position where the model actually committed; the margin
+        looks only at that position and at the alternative it rejected. A model can
+        therefore be confident on average while having been torn at the decision.
         """
         scores = getattr(output, "scores", None)
         if not scores:
-            return None, None
+            return None, None, None
         probs: List[float] = []
         entropies: List[float] = []
+        margin: Optional[float] = None
         for step, step_scores in enumerate(scores):
             if step >= len(gen_ids):
                 break
@@ -333,9 +344,12 @@ class HFVisionLanguageProvider:
             # one-hot distribution gives exactly 0 rather than a NaN.
             logp = torch.log(dist.clamp_min(1e-12))
             entropies.append(float(-(dist * logp).sum()))
+            if step == 0:
+                top2 = torch.topk(dist, k=2).values
+                margin = float(top2[0] - top2[1]) if top2.numel() == 2 else None
         if not probs:
-            return None, None
-        return sum(probs) / len(probs), sum(entropies) / len(entropies)
+            return None, None, None
+        return sum(probs) / len(probs), sum(entropies) / len(entropies), margin
 
     @staticmethod
     def _visual_attention_mass(

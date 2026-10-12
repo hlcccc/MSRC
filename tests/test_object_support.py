@@ -170,7 +170,7 @@ def test_registry_contains_the_signal_and_stays_ordered():
     names = [s.name for s in ALL_SIGNALS]
     assert "object_support" in names
     assert len(names) == len(set(names)), "signal names are column names; they must be unique"
-    assert names[-3:] == ["sequence_confidence", "output_entropy", "visual_attention"]
+    assert names[-3:] == ["output_entropy", "decision_margin", "visual_attention"]
 
 
 def test_build_report_runs_it_without_a_model():

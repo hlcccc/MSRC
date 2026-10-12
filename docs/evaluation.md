@@ -90,7 +90,7 @@ python scripts/evaluate.py --data evidence.jsonl --json
 The report states, in this order:
 
 1. **how many signals produced a value**, split internal and external, with the
-   constant ones named. "Nine signals are defined" and "six ran on this data" are
+   constant ones named. "Ten signals are defined" and "six ran on this data" are
    different claims and only the second one is a result;
 2. **the ECE gain** against the strongest single signal, with the value across
    several binnings beside it, because ECE moves with the binning and a quoted
@@ -154,9 +154,9 @@ on that split while having no warning capability at all.
   say so. Accuracy at the default and accuracy at a tuned threshold answer different
   questions, and a tuned one quoted without the rule reads as a property of the
   score.
-- **Say which signals ran.** Nine are defined: three internal and six external.
+- **Say which signals ran.** Ten are defined: four internal and six external.
   Four run on a text-only serving stack with one model, seven with one model at
-  full access, nine with a second model attached. The count in the report is the
+  full access, ten with a second model attached. The count in the report is the
   one that happened, and the signals that could not run are named there.
 - **Say what the label is.** The label is "the answer contradicts the image", from
   the dataset's own ground truth. A content-safety number is a different quantity

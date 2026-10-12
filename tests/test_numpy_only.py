@@ -47,14 +47,14 @@ def test_signal_names_matches_what_a_report_carries():
     assert build_report(evidence).names() == list(SIGNAL_NAMES)
 
 
-def test_the_declared_inventory_is_nine_signals_three_of_them_internal():
+def test_the_declared_inventory_is_ten_signals_four_of_them_internal():
     """The README's inventory, asserted against the code rather than the prose."""
-    assert len(SIGNAL_NAMES) == 9, SIGNAL_NAMES
+    assert len(SIGNAL_NAMES) == 10, SIGNAL_NAMES
     assert [s.name for s in ALL_SIGNALS] == list(SIGNAL_NAMES)
     internal = [s.name for s in ALL_SIGNALS if s.kind == "internal"]
-    assert len(internal) == 3, internal
+    assert len(internal) == 4, internal
     single = [n for n in SIGNAL_NAMES if n != "cross_model_agreement"]
-    assert len(single) == 8, single
+    assert len(single) == 9, single
 
 
 def test_fitting_on_invented_names_is_refused_at_scoring_time():
