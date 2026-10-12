@@ -143,7 +143,11 @@ def main(argv=None) -> int:
         tpr, fpr = rates(y[test], predicted)
         ba = balanced_accuracy(y[test], scores_test, threshold)
         acc = float((predicted == y[test]).mean())
-        ceiling = max(balanced_accuracy(y[test], scores_test, t) for t in GRID)
+        # 结题判定看的是**普通准确率**，不是平衡准确率。两者只在类别均衡时相等，
+        # 而这里没有一个数据集是均衡的 —— 在 POPE 上什么都不做就有 85.4% 准确率、
+        # 50% 平衡准确率，把判定挂在平衡准确率上会得出相反的结论。
+        ceiling = max(float(((( scores_test >= t).astype(int)) == y[test]).mean())
+                      for t in GRID)
         out.append({
             "model": model, "dataset": dataset, "path": str(path),
             "n_test": int(test.sum()), "positive_rate": float(y[test].mean()),
@@ -151,37 +155,40 @@ def main(argv=None) -> int:
             "balanced_accuracy": ba, "accuracy": acc,
             "never_warn_accuracy": float((y[test] == 0).mean()),
             "auroc": auroc(y[test], scores_test),
-            "balanced_accuracy_ceiling": ceiling,
-            "passes": ba >= 0.85,
+            "accuracy_ceiling": ceiling,
+            "balanced_accuracy_ceiling": max(
+                balanced_accuracy(y[test], scores_test, t) for t in GRID),
+            "passes": acc >= 0.85,
         })
 
     print("=" * 118)
-    print("MSRC 结题口径总表：平衡准确率 =（检出率 + 1 - 误报率）÷ 2")
-    print("阈值在开发半区按平衡准确率选出，测试半区只报数；按真实图片身份分组切分。")
+    print("MSRC 结题口径总表：普通准确率（判对的条目数 ÷ 全部条目数）")
+    print("阈值在开发半区按**普通准确率**选出，测试半区只报数；按真实图片身份分组切分。")
+    print("平衡准确率作为附注列出，不作为达标判定依据。")
     print("=" * 118)
     print()
-    print("  %-14s %-14s %6s %7s %8s %7s %9s %8s %9s %7s %8s"
+    print("  %-14s %-14s %6s %7s %8s %12s %8s %9s %7s %8s %9s"
           % ("模型", "数据集", "测试n", "幻觉率", "检出率", "误报率",
-             "平衡准确率", "准确率", "从不预警", "AUROC", "上界"))
+             "准确率(判定)", "平衡准确率", "从不预警", "AUROC", "准确率上界"))
     print("  " + "-" * 114)
     for r in out:
-        print("  %-14s %-14s %6d %6.1f%% %7.1f%% %6.1f%% %8.1f%% %7.1f%% %8.1f%% %7.4f %7.1f%%"
+        print("  %-14s %-14s %6d %6.1f%% %7.1f%% %6.1f%% %11.1f%% %7.1f%% %8.1f%% %7.4f %8.1f%%"
               % (r["model"], r["dataset"], r["n_test"], 100 * r["positive_rate"],
-                 100 * r["tpr"], 100 * r["fpr"], 100 * r["balanced_accuracy"],
-                 100 * r["accuracy"], 100 * r["never_warn_accuracy"],
-                 r["auroc"], 100 * r["balanced_accuracy_ceiling"]))
+                 100 * r["tpr"], 100 * r["fpr"], 100 * r["accuracy"],
+                 100 * r["balanced_accuracy"], 100 * r["never_warn_accuracy"],
+                 r["auroc"], 100 * r["accuracy_ceiling"]))
     print()
-    print("  判定（结题线：平衡准确率 ≥ 85%）")
+    print("  判定（结题线：普通准确率 ≥ 85%，即老师给的口径）")
     for r in out:
-        margin = r["balanced_accuracy"] - 0.85
+        margin = r["accuracy"] - 0.85
         verdict = ("达标，超出 %.1f 个点" % (100 * margin) if r["passes"]
                    else "未达，差 %.1f 个点" % (100 * -margin))
-        print("    %-14s %-14s %8.1f%%  %s（阈值上界 %.1f%%）"
-              % (r["model"], r["dataset"], 100 * r["balanced_accuracy"],
-                 verdict, 100 * r["balanced_accuracy_ceiling"]))
+        print("    %-14s %-14s %8.1f%%  %s（准确率上界 %.1f%%，从不预警 %.1f%%）"
+              % (r["model"], r["dataset"], 100 * r["accuracy"],
+                 verdict, 100 * r["accuracy_ceiling"], 100 * r["never_warn_accuracy"]))
     print()
     print("  「上界」是用测试标签选出来的，所以它是天花板，不是可以报告的结果。")
-    print("  上界≈当前值 -> 差的是分数的分辨力，调阈值救不了。")
+    print("  上界≈当前值 -> 差的是分数的分辨力，调阈值救不了。上界 < 85% 的格，")
     print("  「从不预警」是数据属性不是成绩：幻觉越稀疏它越高，准确率必须超过它才有意义。")
 
     if args.json:

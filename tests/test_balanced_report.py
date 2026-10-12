@@ -107,12 +107,12 @@ def test_best_threshold_prefers_the_higher_of_two_ties():
 
 # -- the report end to end -------------------------------------------------
 
-def _write_cell(tmp_path: Path, name: str, separable: bool) -> Path:
+def _write_cell(tmp_path: Path, name: str, separable: bool, positive_rate: float = 0.3) -> Path:
     """A tiny evidence file shaped like the real ones."""
     rng = np.random.default_rng(1)
     rows = []
     for i in range(200):
-        y = int(rng.random() < 0.3)
+        y = int(rng.random() < positive_rate)
         skill = (0.8 if y else 0.2) if separable else 0.5
         value = float(np.clip(skill + rng.normal(0, 0.15), 0, 1))
         rows.append({
@@ -173,3 +173,20 @@ def test_a_malformed_cell_spec_is_rejected_loudly():
 def test_a_missing_file_is_reported_and_skipped(tmp_path, capsys):
     assert br.main(["--cell", f"M|D={tmp_path / 'nope.jsonl'}"]) == 0
     assert "文件缺失" in capsys.readouterr().out
+
+
+def test_the_verdict_hangs_on_plain_accuracy_not_on_balanced(tmp_path, capsys):
+    """The acceptance metric is plain accuracy; balanced accuracy is a footnote.
+
+    The failure this guards is concrete: on POPE, warning about nothing scores
+    85.4% accuracy and 50% balanced accuracy. Judging on the balanced figure would
+    fail a cell that passes, and on a rare-positive cell it would pass one that
+    does not.
+    """
+    path = _write_cell(tmp_path, "skew.jsonl", separable=True, positive_rate=0.12)
+    assert br.main(["--cell", f"M|D={path}", "--json"]) == 0
+    text = capsys.readouterr().out
+    payload = json.loads(text[text.index("{", text.index("{")):])
+    cell = payload["cells"][0]
+    assert cell["passes"] == (cell["accuracy"] >= 0.85)
+    assert "accuracy_ceiling" in cell

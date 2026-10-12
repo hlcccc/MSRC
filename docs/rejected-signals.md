@@ -166,6 +166,44 @@ That is a different collection, not more of this one.
 
 ---
 
+## Image contrast (VCD) on the chart benchmark
+
+**Idea.** Visual Contrastive Decoding (Leng et al., CVPR 2024) contrasts the
+next-token distribution with the image against the same distribution without it. Read
+as a detection signal: if removing the picture barely changes what the model was
+about to say, the answer came from the language prior. HallusionBench is charts,
+tables, maps and diagrams, where a model has strong expectations about what such a
+figure usually says, so this was the mechanism chosen to attack it.
+
+**Measured.** Collected on all 951 HallusionBench items with LLaVA-1.5-13B, one
+ablated forward per item with a same-size grey stand-in, Jensen-Shannon divergence in
+bits, dev half only.
+
+**Result: no evidence.**
+
+| reading | dev AUROC |
+|---|---|
+| nine-signal baseline | 0.6968 |
+| plus image contrast | 0.7079 |
+| increment | **+0.0111** |
+| bootstrap 95% interval | **[−0.0058, +0.0293]** |
+
+The interval crosses zero. Test-half accuracy at the dev-chosen threshold was 65.6%,
+against a never-warn baseline of 43.2% -- far from the bar and not moved by the new
+reading.
+
+**What this rules out, and what it does not.** It rules out "the answer did not
+depend on the image" as a *sufficient* description of the chart failure. The
+diagnosis it implies is narrower than the disease: a model that reads a bar chart
+wrongly has looked at the image quite carefully and still produced a wrong number, so
+its first-step distribution is not the distribution of a model answering blind.
+Chart hallucination here is misreading, not ignoring.
+
+It does not rule out image contrast elsewhere. The signal is cheap and the mechanism
+is sound where the failure really is prior-driven; it simply is not the failure on
+this benchmark. Nothing was adopted.
+
+---
 ## Caption length and surface features
 
 **Idea.** Longer captions have more chances to name an object that is not there.
