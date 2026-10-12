@@ -12,8 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from msrc.signals import (  # noqa: E402
     ALL_SIGNALS,
     CrossModelAgreement,
+    CrossModelObjectSupport,
     Evidence,
     GroundingCheck,
+    ObjectSupport,
     OutputEntropy,
     ResampleConsistency,
     SelfConsistency,
@@ -40,11 +42,11 @@ from msrc.types import (  # noqa: E402
 def test_the_signal_inventory_is_what_the_readme_claims():
     external = [s for s in ALL_SIGNALS if s.kind == SIGNAL_EXTERNAL]
     internal = [s for s in ALL_SIGNALS if s.kind == SIGNAL_INTERNAL]
-    assert len(external) == 6, [s.name for s in external]
+    assert len(external) == 7, [s.name for s in external]
     assert len(internal) == 5, [s.name for s in internal]
 
 
-def test_the_declared_inventory_is_exactly_the_eleven_signals():
+def test_the_declared_inventory_is_exactly_the_twelve_signals():
     """Named, and in the order that fixes the fitted matrix's columns.
 
     The order is part of the contract: a fitted scorer's coefficients are applied
@@ -53,17 +55,22 @@ def test_the_declared_inventory_is_exactly_the_eleven_signals():
     assert [s.name for s in ALL_SIGNALS] == [
         "self_consistency", "resample_consistency", "typed_verification",
         "cross_model_agreement", "grounding_check", "object_support",
+        "cross_model_object_support",
         "sequence_confidence", "output_entropy", "decision_margin",
         "image_reliance", "visual_attention",
     ]
 
 
-def test_only_one_signal_needs_a_second_model():
-    """A second VLM is a real deployment cost; it must buy exactly one signal.
+def test_a_second_model_buys_exactly_two_signals():
+    """A second VLM is a real deployment cost; what it buys must be countable.
+
+    It buys two, and they read the same channel at different resolutions:
+    ``cross_model_agreement`` compares the whole caption, ``cross_model_object_support``
+    asks whether the other model also failed to name each object this answer names.
 
     Built with full external evidence and no internals. The answer names an object
     so that ``object_support`` can read the re-lookings, which keeps the unavailable
-    set to the second-model signal plus the three internal ones -- nothing else.
+    set to the second-model signals plus the three internal ones -- nothing else.
     """
     external_only = dict(
         question="q", answer="a car",
@@ -75,13 +82,13 @@ def test_only_one_signal_needs_a_second_model():
     evidence = Evidence(primary=Sample(text="a car"), **external_only)
     report = build_report(evidence)
     assert sorted(report.missing()) == [
-        "cross_model_agreement", "decision_margin", "image_reliance",
-        "output_entropy", "sequence_confidence", "visual_attention",
+        "cross_model_agreement", "cross_model_object_support", "decision_margin",
+        "image_reliance", "output_entropy", "sequence_confidence", "visual_attention",
     ]
     assert len(report.available()) == 5, "five external signals are live here"
 
     # Now give the internals, which is the only thing a single model at full
-    # access adds -- the second-model signal stays unavailable.
+    # access adds -- the second-model signals stay unavailable.
     with_internals = Evidence(
         primary=Sample(text="a car", sequence_confidence=0.9, sequence_entropy=0.3,
                        visual_attention_mass=0.5, first_token_margin=0.8,
@@ -91,7 +98,7 @@ def test_only_one_signal_needs_a_second_model():
     live = build_report(with_internals)
     # Five external that need no second model, plus the five internal: ten.
     assert len(live.available()) == 10, [s.name for s in live.available()]
-    assert live.missing() == ["cross_model_agreement"]
+    assert live.missing() == ["cross_model_agreement", "cross_model_object_support"]
     assert sum(1 for s in live.available() if s.kind == SIGNAL_INTERNAL) == 5
     assert any(s.name == "object_support" for s in live.available())
 
@@ -171,6 +178,115 @@ def test_cross_model_signal_is_unavailable_without_a_second_model():
     assert value.available is False
 
 
+# ---------------------------------------------------------------------------
+# cross_model_object_support
+# ---------------------------------------------------------------------------
+
+def test_an_object_the_other_model_also_never_names_is_full_risk():
+    """The whole point: a second, independent look that misses the same object."""
+    evidence = Evidence(
+        question="describe", answer="a cat and a surfboard",
+        primary=Sample(text="a cat and a surfboard"),
+        cross_model=[Sample(text="a cat on a rug")],
+    )
+    value = CrossModelObjectSupport().compute(evidence)
+    assert value.available is True
+    assert value.risk == pytest.approx(1.0)
+    assert value.raw == pytest.approx(0.0)
+    assert "surfboard" in value.detail
+
+
+def test_an_object_the_other_model_names_too_is_no_risk():
+    evidence = Evidence(
+        question="describe", answer="a cat and a surfboard",
+        primary=Sample(text="a cat and a surfboard"),
+        cross_model=[Sample(text="a cat with a surfboard on a beach")],
+    )
+    value = CrossModelObjectSupport().compute(evidence)
+    assert value.available is True
+    assert value.risk == pytest.approx(0.0)
+
+
+def test_the_weakest_object_decides_even_when_the_others_are_supported():
+    """A caption is only as trustworthy as its least supported claim."""
+    evidence = Evidence(
+        question="describe", answer="a cat and a surfboard",
+        primary=Sample(text="a cat and a surfboard"),
+        cross_model=[Sample(text="a cat on a rug"), Sample(text="a cat and a surfboard")],
+    )
+    value = CrossModelObjectSupport().compute(evidence)
+    assert value.risk == pytest.approx(0.5)
+    assert "surfboard" in value.detail
+
+
+def test_one_reading_from_another_model_is_enough():
+    """MIN_AUXILIARY is a floor on repeating oneself, not on being told by a peer.
+
+    A single other-model description is the usual deployment, and refusing it would
+    be refusing the only cross-model object-level reading there is.
+    """
+    evidence = Evidence(
+        question="describe", answer="a cat",
+        primary=Sample(text="a cat"),
+        cross_model=[Sample(text="a cat")],
+    )
+    assert CrossModelObjectSupport().compute(evidence).available is True
+
+
+def test_cross_model_object_support_is_unavailable_without_a_second_model():
+    value = CrossModelObjectSupport().compute(Evidence(question="q", answer="a cat"))
+    assert value.available is False
+    assert "second model" in value.detail
+
+
+def test_cross_model_object_support_is_unavailable_when_no_object_is_named():
+    evidence = Evidence(
+        question="is there a cat?", answer="Yes",
+        primary=Sample(text="Yes"), cross_model=[Sample(text="Yes")],
+    )
+    value = CrossModelObjectSupport().compute(evidence)
+    assert value.available is False
+    assert "lexicon" in value.detail
+
+
+def test_a_blank_other_model_description_does_not_count_as_a_reading():
+    evidence = Evidence(
+        question="describe", answer="a cat", primary=Sample(text="a cat"),
+        cross_model=[Sample(text="   ")],
+    )
+    assert CrossModelObjectSupport().compute(evidence).available is False
+
+
+def test_the_two_second_model_signals_read_the_same_channel_differently():
+    """One compares captions, the other compares the objects inside them.
+
+    A caption that agrees about the toilet and the shower while inventing a mirror is
+    the case this signal exists for: whole-caption agreement is high and the object
+    reading still fires.
+    """
+    evidence = Evidence(
+        question="describe",
+        answer="a cat, a dog and a surfboard",
+        primary=Sample(text="a cat, a dog and a surfboard"),
+        cross_model=[Sample(text="a cat, a dog and a boat")],
+    )
+    assert CrossModelAgreement().compute(evidence).risk < 1.0
+    assert CrossModelObjectSupport().compute(evidence).risk == pytest.approx(1.0)
+
+
+def test_the_two_object_signals_disagree_when_the_model_repeats_itself():
+    """The failure mode object_support alone cannot see: a consistent mistake."""
+    evidence = Evidence(
+        question="describe", answer="a cat and a surfboard",
+        primary=Sample(text="a cat and a surfboard"),
+        views=[Sample(text="a cat and a surfboard")] * 2,
+        resamples=[Sample(text="a cat and a surfboard")],
+        cross_model=[Sample(text="a cat and a boat")],
+    )
+    assert ObjectSupport().compute(evidence).risk == pytest.approx(0.0)
+    assert CrossModelObjectSupport().compute(evidence).risk == pytest.approx(1.0)
+
+
 def test_unavailable_signals_enter_the_vector_as_zero_but_are_named():
     """External evidence present, internals and the second model absent.
 
@@ -179,7 +295,8 @@ def test_unavailable_signals_enter_the_vector_as_zero_but_are_named():
     healthy while encoding nothing.
 
     ``object_support`` is among the missing here on purpose: the answer is the word
-    "Flickr", which names no object in the lexicon. That is the designed outcome.
+    "Flickr", which names no object in the lexicon. That is the designed outcome, and
+    it takes ``cross_model_object_support`` with it -- both read the same lexicon.
     """
     evidence = Evidence(
         question="q", answer="Flickr", primary=Sample(text="Flickr"),
@@ -190,16 +307,17 @@ def test_unavailable_signals_enter_the_vector_as_zero_but_are_named():
     )
     report = build_report(evidence)
     assert sorted(report.missing()) == [
-        "cross_model_agreement", "decision_margin", "image_reliance",
-        "object_support", "output_entropy", "sequence_confidence", "visual_attention",
+        "cross_model_agreement", "cross_model_object_support", "decision_margin",
+        "image_reliance", "object_support", "output_entropy", "sequence_confidence",
+        "visual_attention",
     ], report.missing()
     assert len(report.available()) == 4
-    assert len(report.vector()) == len(report.signals) == 11
+    assert len(report.vector()) == len(report.signals) == 12
 
 
 def test_every_signal_missing_when_there_is_no_evidence_at_all():
     report = build_report(Evidence(question="q", answer="a", primary=Sample(text="a")))
-    assert len(report.missing()) == len(report.signals) == 11
+    assert len(report.missing()) == len(report.signals) == 12
     assert report.available() == []
 
 

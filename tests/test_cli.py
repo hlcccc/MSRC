@@ -1,4 +1,4 @@
-"""The command line: the declared entry point, and the errors it must not make.
+﻿"""The command line: the declared entry point, and the errors it must not make.
 
 `pyproject.toml` declares `msrc = "msrc.cli:main"`. If that module is missing or
 its commands raise, an install produces a broken command -- which is the defect
@@ -60,27 +60,28 @@ def test_version_prints(capsys):
 # ---------------------------------------------------------------------------
 
 def test_signals_reports_the_single_model_count(capsys):
-    """Eleven are defined; one of them needs a second model attached."""
+    """Twelve are defined; two of them need a second model attached."""
     assert main(["signals"]) == 0
     out = capsys.readouterr().out
-    assert "defined : 11" in out
+    assert "defined : 12" in out
     assert "run     : 10" in out
     assert "5 internal + 5 external" in out
     assert "needs a second model" in out
 
 
-def test_signals_names_the_signal_that_needs_a_second_model(capsys):
+def test_signals_names_the_signals_that_need_a_second_model(capsys):
     assert main(["signals"]) == 0
     out = capsys.readouterr().out
     assert "cross_model_agreement" in out
+    assert "cross_model_object_support" in out
     assert "policy_probe" not in out, "content safety is not modelled here"
 
 
-def test_signals_reports_eleven_with_a_second_model(capsys):
+def test_signals_reports_twelve_with_a_second_model(capsys):
     assert main(["signals", "--second-model"]) == 0
     out = capsys.readouterr().out
-    assert "run     : 11" in out
-    assert "5 internal + 6 external" in out
+    assert "run     : 12" in out
+    assert "5 internal + 7 external" in out
     assert "needs a second model" not in out
 
 
@@ -194,7 +195,7 @@ def test_fit_writes_a_scorer_and_records_provenance(tmp_path, capsys):
 
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["format"] == "msrc-scorer"
-    assert payload["provenance"]["n_signals"] == 11
+    assert payload["provenance"]["n_signals"] == 12
     assert "scorer written" in capsys.readouterr().out
 
 
@@ -212,4 +213,4 @@ def test_score_uses_the_fitted_scorer(tmp_path, capsys):
     result = json.loads(capsys.readouterr().out)
     assert 0.0 <= result["risk_score"] <= 1.0
     assert result["calibrated_confidence"] == pytest.approx(1.0 - result["risk_score"], abs=1e-6)
-    assert len(result["signals"]["signals"]) == 11
+    assert len(result["signals"]["signals"]) == 12

@@ -25,7 +25,7 @@ generates the answer under evaluation, captures its internals, and labels it:
 
     {"question": ..., "image": ..., "gold_answers": ["...", "..."]}
 
-This is the shape that lets all eleven signals run, and it is the honest one: the
+This is the shape that lets every signal run, and it is the honest one: the
 answer is produced by the model under test in a call whose internals are recorded
 as they happen.
 
@@ -215,7 +215,7 @@ def main() -> int:
         "--second-model-path",
         default="",
         help="a second, independent model's checkpoint. Supplying one turns on "
-             "cross_model_agreement, the eighth signal, which is the only one a "
+             "cross_model_agreement and cross_model_object_support, the two signals a "
              "second model buys",
     )
     parser.add_argument(
@@ -338,7 +338,7 @@ def main() -> int:
     if second_provider is not None:
         print(
             f"[collect] second model: {args.second_provider} at "
-            f"{args.second_model_path} -- cross_model_agreement will run"
+            f"{args.second_model_path} -- the cross-model signals will run"
         )
     load = getattr(provider, "load", None)
     if callable(load):

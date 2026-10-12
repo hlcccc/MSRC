@@ -47,13 +47,15 @@ def test_signal_names_matches_what_a_report_carries():
     assert build_report(evidence).names() == list(SIGNAL_NAMES)
 
 
-def test_the_declared_inventory_is_eleven_signals_five_of_them_internal():
+def test_the_declared_inventory_is_twelve_signals_five_of_them_internal():
     """The README's inventory, asserted against the code rather than the prose."""
-    assert len(SIGNAL_NAMES) == 11, SIGNAL_NAMES
+    assert len(SIGNAL_NAMES) == 12, SIGNAL_NAMES
     assert [s.name for s in ALL_SIGNALS] == list(SIGNAL_NAMES)
     internal = [s.name for s in ALL_SIGNALS if s.kind == "internal"]
     assert len(internal) == 5, internal
-    single = [n for n in SIGNAL_NAMES if n != "cross_model_agreement"]
+    # Two signals need a second model, so a single-model deployment runs ten.
+    single = [n for n in SIGNAL_NAMES
+              if n not in ("cross_model_agreement", "cross_model_object_support")]
     assert len(single) == 10, single
 
 

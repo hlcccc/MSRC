@@ -1,6 +1,6 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Eleven independent signals, six external and five internal, mapped to a
+**Twelve independent signals, seven external and five internal, mapped to a
 calibrated hallucination-risk score from a single input.**
 
 MSRC scores a *frozen* model's answer after the fact. It does not retrain or
@@ -14,9 +14,13 @@ use more than the model's text, which is the point:
 | 3 | `typed_verification` | external | typed evidence probing |
 | 4 | `cross_model_agreement` | external | cross-model / judge agreement |
 | 5 | `grounding_check` | external | retrieval- and rule-grounded checking |
-| 6 | `sequence_confidence` | **internal** | LLM-Check, SAPLMA |
-| 7 | `output_entropy` | **internal** | distributional uncertainty |
-| 8 | `visual_attention` | **internal** | attention-based VLM hallucination work |
+| 6 | `object_support` | external | CHAIR's object-level rule, read as a signal |
+| 7 | `cross_model_object_support` | external | the same reading, taken from a second model |
+| 8 | `sequence_confidence` | **internal** | LLM-Check, SAPLMA |
+| 9 | `output_entropy` | **internal** | distributional uncertainty |
+| 10 | `decision_margin` | **internal** | first-token margin instead of a whole-answer mean |
+| 11 | `image_reliance` | **internal** | Visual Contrastive Decoding (Leng et al., CVPR 2024) |
+| 12 | `visual_attention` | **internal** | attention-based VLM hallucination work |
 
 The risk is factual: **does the answer contradict the image?** Content-safety risk
 — does the answer violate a stated policy — is a different question with a
@@ -25,25 +29,35 @@ no longer does; it is modelled outside this repository.
 
 ### How many of them actually run
 
-Eleven signal types are defined: **six external and five internal**. What a
+Twelve signal types are defined: **seven external and five internal**. What a
 deployment can feed decides how many of them produce a reading:
 
 | configuration | signals that run |
 |---|---|
-| text-only serving stack, one model | **4** (the external ones that need no internals and no second model) |
-| one model at full access | **7** |
-| a second model attached | **8** |
+| text-only serving stack, one model | **5** (the external ones that need no internals and no second model) |
+| one model at full access | **10** |
+| a second model attached | **12** |
 
-`cross_model_agreement` is the one signal a second model buys, and its reason for
-existing is narrow but real -- resampling *one* model is correlated with itself, so a
+Those three rows are what `msrc signals` prints; they are counts of the registry,
+not of any particular dataset. On real data the number is usually lower again,
+because a signal whose evidence is absent on every item -- a caption benchmark that
+names no object in the lexicon, a yes/no benchmark with nothing to ground -- reports
+itself unavailable rather than constant. `msrc explain` is what tells the two apart.
+
+A second model buys **two** signals, and both read the same channel at different
+resolutions: `cross_model_agreement` compares the whole answer, and
+`cross_model_object_support` asks, object by object, whether the other model also
+failed to name what this answer names. The reason the cross-model channel exists is
+narrow but real -- resampling *one* model is correlated with itself, so a
 systematic blind spot (a chart the model always misreads) makes every sample agree and
 every consistency signal report confidence. A different model is the only way to break
-that correlation.
+that correlation, and `cross_model_object_support` is what reads it at the resolution
+one wrong object in an otherwise correct caption needs.
 
-The three internal readings (`sequence_confidence`, `output_entropy`,
-`visual_attention`) are kept deliberately: "is the model unsure" is evidence about
-whether an answer is grounded, and unlike a consistency reading it needs no extra
-generations — only that the platform recorded the internals of the call that
+The five internal readings (`sequence_confidence`, `output_entropy`, `decision_margin`,
+`image_reliance`, `visual_attention`) are kept deliberately: "is the model unsure" is
+evidence about whether an answer is grounded, and unlike a consistency reading it needs
+no extra generations — only that the platform recorded the internals of the call that
 produced the answer.
 
 For any of these configurations, the signals that cannot run say so by name in the
@@ -99,11 +113,11 @@ msrc score    --scorer scorer.json --evidence one.json
 msrc evaluate --data evidence.jsonl
 ```
 
-`msrc signals` reports the honest count — eleven defined, **ten that run with a
-single model** — and names the one signal that needs a second model.
+`msrc signals` reports the honest count — twelve defined, **ten that run with a
+single model** — and names the two signals that need a second model.
 
 `msrc explain` is the first thing to run on real data: it says which signals
-carry information and which came out constant, because "eleven signals are defined"
+carry information and which came out constant, because "twelve signals are defined"
 and "six ran on this data" are different claims and only the second is a result.
 
 `msrc score` refuses a scorer with no fitted coefficients. Returning an
@@ -259,10 +273,9 @@ python scripts/evaluate.py --data evidence.jsonl --json
 python scripts/threshold_analysis.py --data evidence.jsonl
 ```
 
-Passing `--second-model-path` turns on `cross_model_agreement`, the one signal a
-second model buys. The two models can sit on different cards with `--device` /
-`--second-device`, which on a shared machine is usually cheaper than packing a 13B
-and a 7B onto one.
+Passing `--second-model-path` turns on the two cross-model signals. The two models can
+sit on different cards with `--device` / `--second-device`, which on a shared machine is
+usually cheaper than packing a 13B and a 7B onto one.
 
 **Read the per-group report, not just the pooled one.** POPE's `random`, `popular`
 and `adversarial` splits draw their negative examples differently and are not

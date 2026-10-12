@@ -84,7 +84,7 @@ def test_health_reports_the_scorer_and_the_security_boundary(client):
     body = client.get("/health").json()
     assert body["status"] == "ok"
     assert body["scorer_fitted"] is True
-    assert body["n_signals"] == 11
+    assert body["n_signals"] == 12
     assert body["conformal_validated"] == VALIDATED
     assert "gateway" in body["auth"], (
         "the service has no auth; the health payload should say so rather than "
@@ -96,7 +96,7 @@ def test_health_carries_provenance(client):
     """A caller should be able to see what the served scorer was fitted on."""
     body = client.get("/health").json()
     assert "provenance" in body
-    assert body["provenance"]["n_signals"] == 11
+    assert body["provenance"]["n_signals"] == 12
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ def test_signals_lists_the_signal_layer(client):
     names = {s["name"] for s in body}
     assert "grounding_check" in names
     assert "cross_model_agreement" in names
-    assert len(names) == 11, names
+    assert len(names) == 12, names
     assert all(s["kind"] in ("internal", "external") for s in body)
 
 

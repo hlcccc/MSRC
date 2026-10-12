@@ -123,8 +123,11 @@ def _cmd_signals(args) -> int:
     from msrc.signals import ALL_SIGNALS
     from msrc.types import SIGNAL_INTERNAL
 
+    # Which signals a second model unlocks is a property of the signal, not a name
+    # the CLI keeps in step by hand: the two have already drifted apart once, and the
+    # count it printed was wrong rather than loud.
     usable = ALL_SIGNALS if args.second_model else [
-        s for s in ALL_SIGNALS if s.name != "cross_model_agreement"
+        s for s in ALL_SIGNALS if not s.needs_second_model
     ]
     internal = [s for s in usable if s.kind == SIGNAL_INTERNAL]
     external = [s for s in usable if s.kind != SIGNAL_INTERNAL]

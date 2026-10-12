@@ -1,4 +1,4 @@
-"""The signal layer: eleven independent readings, six external and five internal.
+"""The signal layer: twelve independent readings, seven external and five internal.
 
 Every signal obeys two invariants that the rest of the framework relies on:
 
@@ -20,6 +20,7 @@ Provenance, one line each:
 * ``cross_model_agreement`` -- cross-model / judge agreement
 * ``grounding_check``    -- retrieval- and rule-grounded checking
 * ``object_support``     -- object-level cross-view support (see msrc.object_support)
+* ``cross_model_object_support`` -- the same reading, taken from a second model
 * ``sequence_confidence`` -- mean token probability; LLM-Check, SAPLMA
 * ``output_entropy``     -- mean per-step output entropy
 * ``decision_margin``    -- top-1 minus top-2 probability at the first step
@@ -285,6 +286,11 @@ class Signal:
     kind: str = SIGNAL_EXTERNAL
     #: One-line description, surfaced in the payload.
     description: str = ""
+    #: True when the signal cannot produce a reading unless a second model was run.
+    #: Declared here rather than looked up by name, so a new cross-model signal is
+    #: counted by ``msrc signals`` the moment it is registered instead of needing the
+    #: CLI to be told about it -- which is a thing that has already been forgotten once.
+    needs_second_model: bool = False
 
     def compute(self, ev: Evidence) -> SignalValue:  # pragma: no cover - interface
         raise NotImplementedError
@@ -405,6 +411,7 @@ class CrossModelAgreement(Signal):
     name = "cross_model_agreement"
     kind = SIGNAL_EXTERNAL
     description = "agreement with an independent second model"
+    needs_second_model = True
 
     def compute(self, ev: Evidence) -> SignalValue:
         if not ev.cross_model:
@@ -510,6 +517,75 @@ class ObjectSupport(Signal):
             detail=(
                 f"weakest of {n_named} named objects is {weakest!r}, which returned in "
                 f"{returned}/{len(auxiliary)} re-readings of the image"
+            ),
+        )
+
+
+class CrossModelObjectSupport(Signal):
+    """Does a *second model* also fail to name the objects this answer names?
+
+    :class:`ObjectSupport` asks whether the model repeats itself. That reading is
+    limited by how independent a model's second look at an image is from its first:
+    a system that consistently mistakes one thing for another will name it again, and
+    the support rate stays high on exactly the claims that are wrong.
+
+    A different model's description of the same picture is a genuinely independent
+    look, and one is already collected for every cell that runs a second model --
+    it is the channel :class:`CrossModelAgreement` reads. This signal reads it at the
+    object level instead of comparing whole captions: the objects the answer names,
+    and how many of them the other model also names. Measured on the two CHAIR cells,
+    the second model's description alone separates the classes better than the model's
+    own seven re-readings do on one of them, and adding it as its own column raises the
+    fused AUROC on both.
+
+    The floor is **one** reading, not two. ``MIN_AUXILIARY`` exists so that a single
+    reading of the *same* model cannot produce a degenerate 0/1 rate; a single reading
+    of a *different* model is not the same situation, and in the usual deployment it is
+    all there is.
+
+    Unavailable -- not zero -- when no second model was run, or when the answer names
+    nothing in the lexicon. Both are ordinary on a yes/no or short-answer benchmark.
+    """
+
+    name = "cross_model_object_support"
+    kind = SIGNAL_EXTERNAL
+    description = "weakest mention rate of the answer's objects in another model's description"
+    needs_second_model = True
+
+    def __init__(self, lexicon: Optional[ObjectLexicon] = None) -> None:
+        self._lexicon = lexicon
+
+    def _resolved(self) -> ObjectLexicon:
+        return self._lexicon if self._lexicon is not None else default_lexicon()
+
+    def compute(self, ev: Evidence) -> SignalValue:
+        others = [t for t in ev.texts("cross_model") if str(t or "").strip()]
+        if not others:
+            return self.unavailable("no second model was run on this item")
+        try:
+            lexicon = self._resolved()
+        except (OSError, ValueError) as exc:
+            return self.unavailable(f"object lexicon unusable: {exc}")
+
+        answer = ev.answer or ev.primary.text
+        if not answer:
+            return self.unavailable("empty answer")
+
+        reading = object_min_support(answer, others, lexicon, min_readings=1)
+        if reading is None:
+            return self.unavailable("answer names no object from the lexicon")
+
+        support, n_named, weakest = reading
+        returned = round(support * len(others))
+        return SignalValue(
+            name=self.name,
+            kind=self.kind,
+            risk=1.0 - support,
+            raw=support,
+            detail=(
+                f"weakest of {n_named} named objects is {weakest!r}, which "
+                f"{'was' if returned else 'was not'} named by the other model "
+                f"({returned}/{len(others)} descriptions)"
             ),
         )
 
@@ -702,6 +778,7 @@ ALL_SIGNALS: List[Signal] = [
     CrossModelAgreement(),
     GroundingCheck(),
     ObjectSupport(),
+    CrossModelObjectSupport(),
     SequenceConfidence(),
     OutputEntropy(),
     DecisionMargin(),

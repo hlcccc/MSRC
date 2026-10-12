@@ -6,11 +6,11 @@ the maths work" but "which of my signals are actually alive". The stub produces
 plausible readings on every channel, so the script runs the identical data twice:
 
   * **text-only platform** -- the serving stack returns strings and nothing else.
-    The three internal signals and the cross-model signal report themselves
-    unavailable; four signals carry the score.
+    The five internal signals and the two cross-model signals report themselves
+    unavailable; five signals carry the score.
   * **with generation-time internals** -- the platform recorded the logprobs and
-    attention of the call that produced the answer. Ten of the eleven signals run;
-    the cross-model one still needs a second model.
+    attention of the call that produced the answer. Ten of the twelve signals run;
+    the two cross-model ones still need a second model.
 
 The difference between the two runs is the point of the framework.
 

@@ -169,17 +169,28 @@ def object_min_support(
     primary_text: object,
     auxiliary_texts: Sequence[object],
     lexicon: ObjectLexicon,
+    *,
+    min_readings: int = MIN_AUXILIARY,
 ) -> Optional[Tuple[float, int, str]]:
     """Lowest cross-reading mention rate among the objects ``primary_text`` names.
 
     Returns ``(min_support, n_named_objects, weakest_object)``, or ``None`` when the
     reading cannot be taken -- no object named, or too few auxiliary readings. The
     caller turns ``None`` into *unavailable* rather than into a risk of zero.
+
+    ``min_readings`` exists because the floor is a property of *where the readings
+    come from*, not of the arithmetic. Two readings of the same model is the floor at
+    which repeating yourself starts to mean something; **one** reading from a
+    *different* model is already independent evidence, and refusing it would throw
+    away the only cross-model object-level reading a two-model deployment has.
+    ``msrc.signals.CrossModelObjectSupport`` is the caller that lowers it.
     """
+    if min_readings < 1:
+        raise ValueError("min_readings must be at least 1")
     named = lexicon.mentioned(primary_text)
     if not named:
         return None
-    if len(auxiliary_texts) < MIN_AUXILIARY:
+    if len(auxiliary_texts) < min_readings:
         return None
 
     aux_sets = [lexicon.mentioned(t) for t in auxiliary_texts]
