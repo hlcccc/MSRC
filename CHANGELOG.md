@@ -112,12 +112,36 @@ opposite risks.
   `docs/evaluation.md`, the CLI examples, the collector's startup message and the
   tests move with it.
 
-### Not yet measured
+### Measured, on a 1,200-item POPE subset
 
-The margin needs a fresh collection run to exist in the evidence, so **no evaluation
-number is claimed for it here**. The columns in every cached evidence file are from
-before it existed. Reporting a gain from it before re-running would be reporting a
-number that does not exist yet.
+The margin needs a fresh collection to exist at all, so the first measurement is a
+pilot: 1,200 POPE items re-run with LLaVA-1.5-13B to capture the first-step scores,
+then merged back into each item's existing evidence by id and judged on the dev half.
+
+| reading | dev AUROC |
+|---|---|
+| `sequence_confidence` on the same subset | 0.6827 |
+| **`decision_margin`** on the same subset | **0.8601** |
+| nine-signal fusion, margin column inert | 0.8759 |
+| nine-signal fusion, margin active | **0.8992** |
+
+Increment **+0.0233**, bootstrap 95% interval over dev items **[+0.0035, +0.0464]**.
+The interval excludes zero, so this is an increment rather than a different draw.
+
+The mechanism is confirmed by the first row: on the same items the mean token
+probability reads 0.68 while the first-step margin reads 0.86. Averaging one real
+decision together with twenty boilerplate tokens does dilute it, which was the reason
+for the signal and is now the reason to believe it.
+
+**Two things this number is not.** It is a 1,200-item subset, not the 9,000-item cell,
+so it is not yet a table entry; the full-scale collection is queued. And an AUROC gain
+of this size is expected to move balanced accuracy by roughly four to eight points
+less than it moves AUROC, on the historical relationship for this benchmark — so it
+should not be read as reaching the 85% line.
+
+Every comparison here is paired on the same items and split, because
+`docs/split-sensitivity.md` shows a single split carries 2.0–7.7 points of noise: an
+unpaired two-run comparison of this size would not resolve anything.
 
 ## [Unreleased] — the ninth signal: object-level support
 
