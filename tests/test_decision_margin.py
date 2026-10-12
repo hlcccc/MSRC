@@ -69,7 +69,7 @@ def test_out_of_range_input_is_clamped():
 
 def test_the_registry_includes_it_before_visual_attention():
     names = [s.name for s in ALL_SIGNALS]
-    assert names.index("decision_margin") == names.index("visual_attention") - 1
+    assert names.index("decision_margin") < names.index("visual_attention")
 
 
 def test_a_round_trip_through_json_keeps_the_margin():

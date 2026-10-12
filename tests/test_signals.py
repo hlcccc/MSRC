@@ -41,10 +41,10 @@ def test_the_signal_inventory_is_what_the_readme_claims():
     external = [s for s in ALL_SIGNALS if s.kind == SIGNAL_EXTERNAL]
     internal = [s for s in ALL_SIGNALS if s.kind == SIGNAL_INTERNAL]
     assert len(external) == 6, [s.name for s in external]
-    assert len(internal) == 4, [s.name for s in internal]
+    assert len(internal) == 5, [s.name for s in internal]
 
 
-def test_the_declared_inventory_is_exactly_the_ten_signals():
+def test_the_declared_inventory_is_exactly_the_eleven_signals():
     """Named, and in the order that fixes the fitted matrix's columns.
 
     The order is part of the contract: a fitted scorer's coefficients are applied
@@ -53,7 +53,8 @@ def test_the_declared_inventory_is_exactly_the_ten_signals():
     assert [s.name for s in ALL_SIGNALS] == [
         "self_consistency", "resample_consistency", "typed_verification",
         "cross_model_agreement", "grounding_check", "object_support",
-        "sequence_confidence", "output_entropy", "decision_margin", "visual_attention",
+        "sequence_confidence", "output_entropy", "decision_margin",
+        "image_reliance", "visual_attention",
     ]
 
 
@@ -74,8 +75,8 @@ def test_only_one_signal_needs_a_second_model():
     evidence = Evidence(primary=Sample(text="a car"), **external_only)
     report = build_report(evidence)
     assert sorted(report.missing()) == [
-        "cross_model_agreement", "decision_margin", "output_entropy",
-        "sequence_confidence", "visual_attention",
+        "cross_model_agreement", "decision_margin", "image_reliance",
+        "output_entropy", "sequence_confidence", "visual_attention",
     ]
     assert len(report.available()) == 5, "five external signals are live here"
 
@@ -83,14 +84,15 @@ def test_only_one_signal_needs_a_second_model():
     # access adds -- the second-model signal stays unavailable.
     with_internals = Evidence(
         primary=Sample(text="a car", sequence_confidence=0.9, sequence_entropy=0.3,
-                       visual_attention_mass=0.5, first_token_margin=0.8),
+                       visual_attention_mass=0.5, first_token_margin=0.8,
+                       image_contrast=0.4),
         **external_only,
     )
     live = build_report(with_internals)
-    # Five external that need no second model, plus the four internal: nine.
-    assert len(live.available()) == 9, [s.name for s in live.available()]
+    # Five external that need no second model, plus the five internal: ten.
+    assert len(live.available()) == 10, [s.name for s in live.available()]
     assert live.missing() == ["cross_model_agreement"]
-    assert sum(1 for s in live.available() if s.kind == SIGNAL_INTERNAL) == 4
+    assert sum(1 for s in live.available() if s.kind == SIGNAL_INTERNAL) == 5
     assert any(s.name == "object_support" for s in live.available())
 
 
@@ -188,16 +190,16 @@ def test_unavailable_signals_enter_the_vector_as_zero_but_are_named():
     )
     report = build_report(evidence)
     assert sorted(report.missing()) == [
-        "cross_model_agreement", "decision_margin", "object_support",
-        "output_entropy", "sequence_confidence", "visual_attention",
+        "cross_model_agreement", "decision_margin", "image_reliance",
+        "object_support", "output_entropy", "sequence_confidence", "visual_attention",
     ], report.missing()
     assert len(report.available()) == 4
-    assert len(report.vector()) == len(report.signals) == 10
+    assert len(report.vector()) == len(report.signals) == 11
 
 
 def test_every_signal_missing_when_there_is_no_evidence_at_all():
     report = build_report(Evidence(question="q", answer="a", primary=Sample(text="a")))
-    assert len(report.missing()) == len(report.signals) == 10
+    assert len(report.missing()) == len(report.signals) == 11
     assert report.available() == []
 
 

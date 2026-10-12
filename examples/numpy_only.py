@@ -36,7 +36,7 @@ def main() -> int:
     rng = np.random.default_rng(0)
 
     names = list(SIGNAL_NAMES)
-    assert len(names) == 10, names
+    assert len(names) == 11, names
 
     # The calibrator on its own is a plain NumPy logistic fit.
     X = rng.normal(size=(200, len(names)))

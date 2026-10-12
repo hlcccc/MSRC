@@ -1,4 +1,4 @@
-"""The signal layer: ten independent readings, six external and four internal.
+"""The signal layer: eleven independent readings, six external and five internal.
 
 Every signal obeys two invariants that the rest of the framework relies on:
 
@@ -23,6 +23,7 @@ Provenance, one line each:
 * ``sequence_confidence`` -- mean token probability; LLM-Check, SAPLMA
 * ``output_entropy``     -- mean per-step output entropy
 * ``decision_margin``    -- top-1 minus top-2 probability at the first step
+* ``image_reliance``     -- Visual Contrastive Decoding (Leng et al., CVPR 2024)
 * ``visual_attention``   -- attention mass on image tokens
 """
 
@@ -52,6 +53,7 @@ __all__ = [
     "SIGNAL_NAMES",
     "ObjectSupport",
     "DecisionMargin",
+    "ImageReliance",
 ]
 
 # ---------------------------------------------------------------------------
@@ -101,6 +103,7 @@ class Evidence:
                 "sequence_entropy": s.sequence_entropy,
                 "visual_attention_mass": s.visual_attention_mass,
                 "first_token_margin": s.first_token_margin,
+                "image_contrast": s.image_contrast,
             }
 
         return {
@@ -142,6 +145,7 @@ class Evidence:
                 sequence_entropy=d.get("sequence_entropy"),
                 visual_attention_mass=d.get("visual_attention_mass"),
                 first_token_margin=d.get("first_token_margin"),
+                image_contrast=d.get("image_contrast"),
             )
 
         def sample_list(value: object, field: str) -> List[Sample]:
@@ -602,6 +606,50 @@ class VisualAttention(Signal):
         )
 
 
+class ImageReliance(Signal):
+    """Did removing the picture change the model's mind?
+
+    Visual Contrastive Decoding (Leng et al., CVPR 2024) contrasts the next-token
+    distribution with the image against the same distribution without it. It is a
+    decoding rule there; here the same quantity is read as evidence about one answer.
+
+    A model that looked at the picture produces a different distribution than one
+    answering from its prior about what such a picture usually contains, and the
+    divergence between the two measures how much of the answer came from the image.
+    Near zero means the answer would have been the same either way, which is the
+    characteristic failure on chart and diagram questions: the model has strong
+    expectations about what a bar chart says and answers from them.
+
+    The provider computes the divergence -- ``image_contrast`` on the sample -- and
+    the direction is supplied here: ``risk = 1 - contrast``.
+
+    Unavailable, not zero, when the provider could not run the ablated pass, which is
+    a supported configuration rather than an error.
+    """
+
+    name = "image_reliance"
+    kind = SIGNAL_INTERNAL
+    description = "how much the first-step distribution changed when the image was removed"
+
+    def compute(self, ev: Evidence) -> SignalValue:
+        contrast = ev.primary.image_contrast
+        if contrast is None:
+            return self.unavailable(
+                "provider ran no image-ablated pass (internal signal unavailable)"
+            )
+        contrast = min(max(float(contrast), 0.0), 1.0)
+        return SignalValue(
+            name=self.name,
+            kind=self.kind,
+            risk=1.0 - contrast,
+            raw=contrast,
+            detail=(
+                f"first-step distribution moves {contrast:.4f} bits (JS) when the image "
+                f"is replaced by a blank; near 0 means the answer did not depend on it"
+            ),
+        )
+
+
 class DecisionMargin(Signal):
     """How decisively the model committed at the first generated token.
 
@@ -657,6 +705,7 @@ ALL_SIGNALS: List[Signal] = [
     SequenceConfidence(),
     OutputEntropy(),
     DecisionMargin(),
+    ImageReliance(),
     VisualAttention(),
 ]
 

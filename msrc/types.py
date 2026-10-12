@@ -50,6 +50,11 @@ class Sample:
     #: Not a summary of ``sequence_confidence``: the mean is taken across the whole
     #: answer, the margin only across the one position where the model committed.
     first_token_margin: Optional[float] = None
+    #: Jensen-Shannon divergence in bits between the first-step distribution with the
+    #: image and with a blank stand-in, in ``[0, 1]``. Near 0 means removing the
+    #: picture did not change what the model was about to say -- the answer came from
+    #: the language prior. See `HFVisionLanguageProvider._image_contrast`.
+    image_contrast: Optional[float] = None
     meta: Dict[str, Any] = field(default_factory=dict)
 
 

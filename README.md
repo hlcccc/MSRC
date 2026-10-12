@@ -1,6 +1,6 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Ten independent signals, six external and four internal, mapped to a
+**Eleven independent signals, six external and five internal, mapped to a
 calibrated hallucination-risk score from a single input.**
 
 MSRC scores a *frozen* model's answer after the fact. It does not retrain or
@@ -25,7 +25,7 @@ no longer does; it is modelled outside this repository.
 
 ### How many of them actually run
 
-Ten signal types are defined: **six external and four internal**. What a
+Eleven signal types are defined: **six external and five internal**. What a
 deployment can feed decides how many of them produce a reading:
 
 | configuration | signals that run |
@@ -99,11 +99,11 @@ msrc score    --scorer scorer.json --evidence one.json
 msrc evaluate --data evidence.jsonl
 ```
 
-`msrc signals` reports the honest count — ten defined, **nine that run with a
+`msrc signals` reports the honest count — eleven defined, **ten that run with a
 single model** — and names the one signal that needs a second model.
 
 `msrc explain` is the first thing to run on real data: it says which signals
-carry information and which came out constant, because "ten signals are defined"
+carry information and which came out constant, because "eleven signals are defined"
 and "six ran on this data" are different claims and only the second is a result.
 
 `msrc score` refuses a scorer with no fitted coefficients. Returning an

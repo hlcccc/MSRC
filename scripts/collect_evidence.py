@@ -25,7 +25,7 @@ generates the answer under evaluation, captures its internals, and labels it:
 
     {"question": ..., "image": ..., "gold_answers": ["...", "..."]}
 
-This is the shape that lets all ten signals run, and it is the honest one: the
+This is the shape that lets all eleven signals run, and it is the honest one: the
 answer is produced by the model under test in a call whose internals are recorded
 as they happen.
 
@@ -157,6 +157,7 @@ def build_provider(args):
         max_new_tokens=args.max_new_tokens,
         seed=args.seed,
         want_attention=args.want_attention,
+        want_image_contrast=getattr(args, "want_image_contrast", False),
         max_pixels=getattr(args, "max_pixels", 0) or None,
         **extra,
     )
@@ -251,6 +252,14 @@ def main() -> int:
         action="store_true",
         help="compute the visual-attention signal; keeps every layer's attention "
              "alive and is the most expensive reading here",
+    )
+    parser.add_argument(
+        "--want-image-contrast",
+        action="store_true",
+        help="run one extra forward per item with the image replaced by a "
+             "blank, and record how far the first-step distribution moves. "
+             "Visual Contrastive Decoding (CVPR 2024) read as a detection "
+             "signal: near zero means the answer did not depend on the image",
     )
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument(

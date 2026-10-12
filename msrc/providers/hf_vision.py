@@ -130,6 +130,7 @@ class HFVisionLanguageProvider:
         top_p: float = 0.9,
         seed: Optional[int] = None,
         want_attention: bool = False,
+        want_image_contrast: bool = False,
         max_pixels: Optional[int] = None,
         model_fn: Any = None,
     ):
@@ -142,6 +143,8 @@ class HFVisionLanguageProvider:
         self.top_p = float(top_p)
         self.seed = seed
         self.want_attention = bool(want_attention)
+        #: One extra forward pass per item, no generation. See `_image_contrast`.
+        self.want_image_contrast = bool(want_image_contrast)
         self.max_pixels = int(max_pixels) if max_pixels else None
         self._model_fn = model_fn
 
@@ -277,6 +280,11 @@ class HFVisionLanguageProvider:
         decoded = self._processor.decode(gen_ids, skip_special_tokens=True).strip()
 
         confidence, entropy, margin = self._from_scores(output, gen_ids, torch)
+        contrast = (
+            self._image_contrast(output, text, pil, torch)
+            if (self.want_image_contrast and pil is not None)
+            else None
+        )
         attention = (
             self._visual_attention_mass(
                 output, inputs, prompt_len, self.image_token_id()
@@ -310,8 +318,59 @@ class HFVisionLanguageProvider:
             sequence_entropy=entropy,
             visual_attention_mass=attention,
             first_token_margin=margin,
+            image_contrast=contrast,
             meta={"prompt_len": prompt_len, "generated": int(len(gen_ids))},
         )
+
+    def _image_contrast(self, output: Any, text: str, pil: Any, torch: Any) -> Optional[float]:
+        """Jensen-Shannon divergence, in bits, between the first step with and without
+        the image. Visual Contrastive Decoding (Leng et al., CVPR 2024), used as a
+        *detection* reading rather than a decoding rule.
+
+        The idea transfers unchanged: if removing the picture barely moves what the
+        model was about to say, the answer came from the language prior rather than
+        from the image. That is the hallucination this is meant to catch, and it is
+        the characteristic failure on chart questions, where the model has strong
+        expectations about what such a chart usually says.
+
+        JS divergence rather than KL because it is symmetric and bounded in ``[0, 1]``
+        in bits, so it orients as a support reading without a normalising constant
+        chosen by hand.
+
+        The stand-in image is a flat grey of the **same size** as the original: a
+        different size changes the number of vision tokens and the two distributions
+        would then differ for reasons unrelated to content.
+        """
+        scores = getattr(output, "scores", None)
+        if not scores:
+            return None
+        try:
+            from PIL import Image
+
+            size = getattr(pil, "size", None)
+            if not size:
+                return None
+            blank = Image.new("RGB", size, (127, 127, 127))
+            ablated = self._processor(images=blank, text=text,
+                                      return_tensors="pt").to(self.device)
+            with torch.inference_mode():
+                out = self._model(**ablated)
+            p_with = torch.softmax(scores[0][0].float(), dim=-1)
+            p_without = torch.softmax(out.logits[0, -1, :].float(), dim=-1)
+            mid = 0.5 * (p_with + p_without)
+            log2 = math.log(2.0)
+
+            def kl(a, b):
+                mask = a > 0
+                return float((a[mask] * ((a[mask] / b[mask]).log() / log2)).sum())
+
+            js = 0.5 * kl(p_with, mid) + 0.5 * kl(p_without, mid)
+            return min(max(js, 0.0), 1.0)
+        except Exception:
+            # A stack that cannot run the ablated pass reports the reading missing
+            # rather than substituting a number. A constant column trains a
+            # calibrator that looks healthy and means nothing.
+            return None
 
     @staticmethod
     def _from_scores(output: Any, gen_ids: Any, torch: Any) -> tuple[Optional[float], Optional[float], Optional[float]]:
