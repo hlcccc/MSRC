@@ -24,12 +24,40 @@ import numpy as np
 
 __all__ = [
     "auroc",
+    "balanced_accuracy",
     "brier",
     "ece",
     "reliability_curve",
     "threshold_metrics",
     "summarise",
 ]
+
+
+def balanced_accuracy(labels: Sequence[int], scores: Sequence[float],
+                      threshold: float) -> float:
+    """``(TPR + TNR) / 2`` -- accuracy on a set with equal numbers of each class.
+
+    This is the project's acceptance metric, and it is *not* a rescaling of raw
+    accuracy. Where hallucinations are 15% of the items, warning about nothing at
+    all scores 85% raw accuracy and 50% balanced accuracy; quoting the raw number
+    against an 85% bar would be quoting the base rate back. The two agree only when
+    the classes are already balanced, which no benchmark here is.
+
+    Defined for one class present as well: the missing rate contributes 0, so a
+    single-class input reads 0.5 rather than raising. A caller that cares should
+    check first -- ``auroc`` refuses the same input outright.
+    """
+    y = np.asarray(labels, dtype=np.int64).reshape(-1)
+    s = np.asarray(scores, dtype=np.float64).reshape(-1)
+    if len(y) != len(s):
+        raise ValueError("labels and scores must have the same length")
+    if len(y) == 0:
+        raise ValueError("no items to score")
+    predicted = (s >= threshold).astype(np.int64)
+    positives, negatives = y == 1, y == 0
+    tpr = float(predicted[positives].mean()) if positives.any() else 0.0
+    tnr = float((1 - predicted[negatives]).mean()) if negatives.any() else 0.0
+    return (tpr + tnr) / 2.0
 
 
 def auroc(labels: Sequence[int], scores: Sequence[float]) -> float:
@@ -115,7 +143,7 @@ def ece(
     n_bins: int = 15,
     strategy: str = "uniform",
 ) -> float:
-    """Expected Calibration Error: ``Σ_b (n_b/N) · |freq(b) − mean_pred(b)|``.
+    """Expected Calibration Error: ``Σ_b (n_b/N) · |freq(b) - mean_pred(b)|``.
 
     Two properties decide whether a quoted value means anything:
 

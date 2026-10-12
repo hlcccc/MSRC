@@ -3,6 +3,41 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — the headline table lives in the repository
+
+The per-cell numbers behind the acceptance claim came from one-off shell scripts kept
+outside the repository. A number that can be read but not re-run is a claim rather
+than a result, so `scripts/balanced_report.py` regenerates the whole table from cached
+evidence on a CPU in seconds, and it is what the numbers are now quoted from.
+
+    python scripts/balanced_report.py \
+        --cell "LLaVA-1.5-13B|POPE=evidence_pope_official9000.jsonl" \
+        --cell "LLaVA-1.5-13B|CHAIR=evidence_chair.jsonl"
+
+It prints, per cell: the two halves of the acceptance metric (检出率 / 误报率) so a
+passing number can be audited rather than trusted; the metric itself; the raw accuracy
+**beside** the never-warn baseline, so a high value on a rare-hallucination benchmark
+is visible as the base rate; and the threshold ceiling, so a shortfall can be read as
+"the operating point is wrong" or "the score cannot do better".
+
+### Added
+
+- `scripts/balanced_report.py`, with the discipline stated in its docstring: thresholds
+  are chosen on the dev half and reported on the test half, the split is by real image
+  identity, and no choice anywhere is made on the test half.
+- `evaluation.metrics.balanced_accuracy` — the definition now lives with `auroc` and
+  `brier` instead of inside one script, since two callers need it.
+- `tests/test_balanced_report.py` — 10 tests, including an end-to-end pair asserting a
+  separable synthetic cell reports 达标 and an unseparable one reports 未达 with its
+  ceiling beside it.
+
+### Fixed
+
+- a U+2212 minus sign in two files' output. It is not in GBK, so on a Chinese Windows
+  console the script died with `UnicodeEncodeError` while printing its own header -- a
+  crash caused entirely by punctuation. Scanned the tree for other non-GBK characters;
+  there are none left.
+
 ## [Unreleased] — the acceptance metric is balanced accuracy
 
 The project's bar is "flag the hallucinated items **and** leave the clean ones

@@ -29,7 +29,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from evaluation.metrics import auroc, brier, threshold_metrics  # noqa: E402
+from evaluation.metrics import auroc, balanced_accuracy, brier, threshold_metrics  # noqa: E402
 from evaluation.groups import image_group_id  # noqa: E402
 from evaluation.split import DEFAULT_DEV_FRACTION, DEFAULT_SEED, grouped_split  # noqa: E402
 from msrc.model import RiskCalibrator  # noqa: E402
@@ -52,23 +52,12 @@ def accuracy_at(scores, labels, threshold: float) -> float:
 
 
 def balanced_accuracy_at(scores, labels, threshold: float) -> float:
-    """``(TPR + TNR) / 2`` -- accuracy on a set with equal numbers of each class.
+    """The acceptance metric. See :func:`evaluation.metrics.balanced_accuracy`.
 
-    This is the project's acceptance metric, and it is not a re-scaling of raw
-    accuracy. Where hallucinations are 15% of the items, warning about nothing at
-    all scores 85% raw accuracy and 50% balanced accuracy; quoting the raw number
-    against an 85% bar would be quoting the base rate back. The two agree only when
-    the classes are already balanced, which no benchmark here is.
+    Kept as a thin alias so call sites here read the same way as ``accuracy_at``
+    directly above; the definition lives in the metrics module with the others.
     """
-    scores = np.asarray(scores, dtype=float)
-    labels = np.asarray(labels, dtype=int)
-    if scores.size == 0:
-        raise ValueError("no scores to threshold")
-    pred = (scores >= threshold).astype(int)
-    positives, negatives = labels == 1, labels == 0
-    tpr = float(pred[positives].mean()) if positives.any() else 0.0
-    tnr = float((1 - pred[negatives]).mean()) if negatives.any() else 0.0
-    return (tpr + tnr) / 2.0
+    return balanced_accuracy(labels, scores, threshold)
 
 
 def sweep_accuracy(scores, labels, grid=DEFAULT_GRID) -> np.ndarray:
