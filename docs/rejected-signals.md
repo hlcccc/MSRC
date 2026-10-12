@@ -49,6 +49,44 @@ negative result is the reason to say so rather than to keep trying variants.
 
 ---
 
+## Claims-level minimum support
+
+**Idea.** The entry above concludes that minimum-over-continuous-text fails because
+free text has no discrete unit. Claims do: a proposition either recurs when the
+model looks again or it does not. So the answer was split into sentences as a cheap
+stand-in for claims, each sentence was scored by its *best* agreement against any
+re-phrasing, resample or second-model answer, and the signal was the **weakest**
+sentence.
+
+**Measured.** Six cells, dev half only.
+
+**Result: no gain.**
+
+| cell | availability (needs ≥2 sentences) | standalone AUROC | increment |
+|---|---|---|---|
+| LLaVA CHAIR | 100% | 0.5967 | **−0.0031** |
+| LLaVA POPE | 46.6% | 0.5122 | +0.0002 |
+| LLaVA HallusionBench | 34.8% | 0.4950 | +0.0012 |
+| Qwen CHAIR | 94.9% | 0.5201 | +0.0006 |
+| Qwen HallusionBench | 60.9% | 0.5121 | +0.0004 |
+| LLaVA TextVQA | 0.0% | — | — |
+
+Every increment is inside the noise and one is negative.
+
+**What this says about the earlier explanation.** The object-level signal was
+credited with working because objects are discrete. That was half the story. The
+other half is that an object's identity is *checkable*: "bike" and "bicycle" resolve
+to one unit by a lexicon, without judging meaning. A sentence has no such resolution
+— deciding that two sentences say the same thing is a semantic judgement, and the
+agreement function here is string overlap, which is too blunt to carry it. Discrete
+units are necessary but not sufficient; they also have to be *identifiable cheaply*.
+
+Together with the entry above, this closes the "go finer-grained" direction for the
+signals available from cached evidence. TextVQA answers are single phrases, so the
+signal cannot even be taken there.
+
+---
+
 ## Numeric grounding
 
 **Idea.** HallusionBench is charts, tables, maps and diagrams, where hallucination
