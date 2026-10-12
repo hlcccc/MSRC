@@ -77,6 +77,17 @@ is visible as the base rate; and the threshold ceiling, so a shortfall can be re
 
 ## [Unreleased] — the acceptance metric is balanced accuracy
 
+**Corrected above.** This entry switched the reported metric to balanced accuracy on
+the reading that the acceptance criterion was "correct classification when the two
+classes are equally represented". That reading was wrong: the criterion is plain
+accuracy on the benchmark's own proportions -- count the items classified correctly
+and divide by the number of items. Balanced accuracy is a useful secondary reading,
+and it stays in the report, but it is not the bar. The threshold rule was corrected
+with it, since a balanced-accuracy operating point is not the accuracy-optimal one.
+
+The rest of this entry is left as written, because the tooling it describes is still
+in place and still correct; only the claim about which number is the bar was wrong.
+
 The project's bar is "flag the hallucinated items **and** leave the clean ones
 alone". On a set with equal numbers of each that is plain accuracy; on every
 benchmark here it is not, because the classes are not balanced. POPE is 15%
