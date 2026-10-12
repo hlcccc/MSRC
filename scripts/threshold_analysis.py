@@ -51,6 +51,26 @@ def accuracy_at(scores, labels, threshold: float) -> float:
     return float(((scores >= threshold).astype(int) == labels).mean())
 
 
+def balanced_accuracy_at(scores, labels, threshold: float) -> float:
+    """``(TPR + TNR) / 2`` -- accuracy on a set with equal numbers of each class.
+
+    This is the project's acceptance metric, and it is not a re-scaling of raw
+    accuracy. Where hallucinations are 15% of the items, warning about nothing at
+    all scores 85% raw accuracy and 50% balanced accuracy; quoting the raw number
+    against an 85% bar would be quoting the base rate back. The two agree only when
+    the classes are already balanced, which no benchmark here is.
+    """
+    scores = np.asarray(scores, dtype=float)
+    labels = np.asarray(labels, dtype=int)
+    if scores.size == 0:
+        raise ValueError("no scores to threshold")
+    pred = (scores >= threshold).astype(int)
+    positives, negatives = labels == 1, labels == 0
+    tpr = float(pred[positives].mean()) if positives.any() else 0.0
+    tnr = float((1 - pred[negatives]).mean()) if negatives.any() else 0.0
+    return (tpr + tnr) / 2.0
+
+
 def sweep_accuracy(scores, labels, grid=DEFAULT_GRID) -> np.ndarray:
     """Accuracy at every threshold in ``grid``, in grid order."""
     return np.array([accuracy_at(scores, labels, t) for t in grid], dtype=float)
@@ -142,6 +162,10 @@ def main(argv=None) -> int:
     }
     ceiling_threshold = pick_threshold(test_scores, y_test, rule="accuracy")
     ceiling = accuracy_at(test_scores, y_test, ceiling_threshold)
+    ba_ceiling_threshold = pick_threshold(test_scores, y_test, rule="balanced")
+    ba_ceiling = balanced_accuracy_at(test_scores, y_test, ba_ceiling_threshold)
+    ba_default = balanced_accuracy_at(test_scores, y_test, args.default_threshold)
+    never_warn_accuracy = float((y_test == 0).mean())
 
     print("=" * 84)
     print("MSRC threshold analysis")
@@ -153,18 +177,27 @@ def main(argv=None) -> int:
     print(f"  Brier        : test {brier(y_test, test_scores):.4f}")
     print()
     print(f"  {'rule':30} {'thr':>6} {'dev acc':>8} {'test acc':>9} "
-          f"{'prec':>7} {'rec':>7} {'F1':>7}")
+          f"{'test bal':>9} {'prec':>7} {'rec':>7} {'F1':>7}")
     for label, threshold in rules.items():
         dev_metrics = threshold_metrics(y_dev, dev_scores, threshold=threshold)
         test_metrics = threshold_metrics(y_test, test_scores, threshold=threshold)
         print(f"  {label:30} {threshold:6.2f} {dev_metrics['accuracy']:8.4f} "
-              f"{test_metrics['accuracy']:9.4f} {test_metrics['precision']:7.4f} "
+              f"{test_metrics['accuracy']:9.4f} "
+              f"{balanced_accuracy_at(test_scores, y_test, threshold):9.4f} "
+              f"{test_metrics['precision']:7.4f} "
               f"{test_metrics['recall']:7.4f} {test_metrics['f1']:7.4f}")
+    print()
+    print("  验收口径（有幻觉 / 无幻觉各占一半时的判对比例 = 平衡准确率）")
+    print(f"    默认阈值 {args.default_threshold:g} 下 test 平衡准确率 = {ba_default:.4f}")
+    print(f"    任何阈值在 test 上能达到的平衡准确率上界 = {ba_ceiling:.4f} "
+          f"(阈值 {ba_ceiling_threshold:.2f})")
+    print(f"    参照「什么都不预警」的原始准确率 = {never_warn_accuracy:.4f}"
+          "  ← 幻觉越稀疏这个数越高，它不是成绩")
     print()
     print(f"  在 test 上任何阈值能达到的准确率上界: {ceiling:.4f}  "
           f"(阈值 {ceiling_threshold:.2f})")
-    print("  这个数是用 test 标签选出来的，所以它是天花板，不是可以报告的结果。")
-    print("  它的用处是区分两件事：")
+    print("  这两个上界都是用 test 标签选出来的，所以是天花板，不是可以报告的结果。")
+    print("  它们的用处是区分两件事：")
     print("    - 上界明显高于默认阈值的结果 -> 默认操作点选得不好，值得调；")
     print("    - 上界约等于默认阈值的结果   -> 调阈值救不了，差的是分数的分辨能力。")
     print()
@@ -182,12 +215,17 @@ def main(argv=None) -> int:
                     "threshold": float(threshold),
                     "dev_accuracy": threshold_metrics(y_dev, dev_scores, threshold=threshold)["accuracy"],
                     "test_accuracy": threshold_metrics(y_test, test_scores, threshold=threshold)["accuracy"],
+                    "test_balanced_accuracy": balanced_accuracy_at(test_scores, y_test, threshold),
                     "test_metrics": threshold_metrics(y_test, test_scores, threshold=threshold),
                 }
                 for label, threshold in rules.items()
             },
             "test_accuracy_ceiling": ceiling,
             "test_accuracy_ceiling_threshold": ceiling_threshold,
+            "test_balanced_accuracy_ceiling": ba_ceiling,
+            "test_balanced_accuracy_ceiling_threshold": ba_ceiling_threshold,
+            "never_warn_accuracy": never_warn_accuracy,
+            "acceptance_metric": "balanced_accuracy",
             "ceiling_is_selected_on_test": True,
         }, indent=2, ensure_ascii=False))
     return 0

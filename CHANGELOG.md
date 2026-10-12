@@ -3,6 +3,38 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — the acceptance metric is balanced accuracy
+
+The project's bar is "flag the hallucinated items **and** leave the clean ones
+alone". On a set with equal numbers of each that is plain accuracy; on every
+benchmark here it is not, because the classes are not balanced. POPE is 15%
+hallucinated, so warning about nothing at all scores **85.2% raw accuracy and 50%
+balanced accuracy**. Quoted against an 85% bar, the raw number reads as a pass.
+
+`scripts/threshold_analysis.py` now reports both, and both ceilings:
+
+- a `test bal` column beside `test acc` for every operating-point rule;
+- the balanced-accuracy ceiling as well as the raw-accuracy one, because they are
+  reached at different thresholds and conflating them hides which one is binding;
+- the never-warn raw accuracy, labelled as a property of the data rather than a
+  result, so the 85.2% is visible next to the number it inflates;
+- `acceptance_metric: balanced_accuracy` in the `--json` payload.
+
+### Added
+
+- `balanced_accuracy_at()`, defined as ``(TPR + TNR) / 2`` with a docstring that
+  says why it is not a re-scaling of accuracy.
+- `tests/test_threshold_analysis_metric.py` — 9 tests. The load-bearing ones are
+  the pair showing "never warn" scoring 0.85 / 0.50 on the same input, and the
+  invariance check: the same ranking quality reads the same however the classes are
+  mixed, which is the property raw accuracy does not have.
+
+### Changed
+
+- nothing that was previously reported was removed; the raw-accuracy column and
+  its ceiling are still printed, since a run has to stay comparable with the numbers
+  already in the deck.
+
 ## [Unreleased] — the tenth signal: first-step decision margin
 
 `sequence_confidence` averages the token probabilities over the whole answer, and on
