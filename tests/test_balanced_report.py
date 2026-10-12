@@ -57,14 +57,44 @@ def test_never_warning_scores_the_positive_rate_in_accuracy_only():
 
 # -- threshold selection ---------------------------------------------------
 
-def test_best_threshold_maximises_balanced_accuracy():
+def test_best_threshold_maximises_the_rule_it_is_given():
     rng = np.random.default_rng(0)
     labels = (rng.random(400) < 0.3).astype(int)
     scores = np.clip(0.2 + 0.6 * labels + rng.normal(0, 0.2, 400), 0, 1)
-    chosen = br.best_threshold(scores, labels)
+    chosen = br.best_threshold(scores, labels, rule="balanced")
     achieved = balanced_accuracy(labels, scores, chosen)
     for t in (0.0, 0.25, 0.5, 0.75, 1.0):
         assert achieved >= balanced_accuracy(labels, scores, t) - 1e-12
+
+
+def test_the_accuracy_rule_maximises_accuracy():
+    rng = np.random.default_rng(3)
+    labels = (rng.random(400) < 0.15).astype(int)
+    scores = np.clip(0.2 + 0.6 * labels + rng.normal(0, 0.2, 400), 0, 1)
+    chosen = br.best_threshold(scores, labels, rule="accuracy")
+    achieved = float(((scores >= chosen).astype(int) == labels).mean())
+    for t in (0.0, 0.25, 0.5, 0.75, 1.0):
+        assert achieved >= float(((scores >= t).astype(int) == labels).mean()) - 1e-12
+
+
+def test_the_two_rules_disagree_on_an_unbalanced_benchmark():
+    """This is why the rule has to match the reported metric.
+
+    Where positives are rare, the balanced optimum warns far more often than the
+    accuracy optimum, and every extra warning is a false positive subtracted from a
+    number the majority class already dominates.
+    """
+    rng = np.random.default_rng(7)
+    labels = (rng.random(600) < 0.12).astype(int)
+    scores = np.clip(0.15 + 0.7 * labels + rng.normal(0, 0.22, 600), 0, 1)
+    acc_t = br.best_threshold(scores, labels, rule="accuracy")
+    bal_t = br.best_threshold(scores, labels, rule="balanced")
+    assert bal_t < acc_t, "the balanced optimum should warn more, i.e. sit lower"
+
+
+def test_an_unknown_rule_is_rejected():
+    with pytest.raises(ValueError):
+        br.best_threshold([0.1, 0.9], [0, 1], rule="f1")
 
 
 def test_best_threshold_prefers_the_higher_of_two_ties():

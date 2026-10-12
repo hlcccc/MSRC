@@ -3,6 +3,43 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — choose the operating point for the metric you report
+
+`balanced_report.py` selected the threshold on the dev half to maximise **balanced**
+accuracy and then reported **raw** accuracy. On an unbalanced benchmark those two
+optima sit at different operating points, and the gap is not small: where 15% of items
+are hallucinated, the balanced optimum warns far more often, and every extra warning is
+a false positive subtracted from a number the majority class already dominates.
+
+Measured on eight split seeds, threshold chosen on dev under each rule:
+
+| cell | rule = balanced | rule = accuracy | never warn |
+|---|---|---|---|
+| LLaVA-1.5-13B POPE | 85.2% | **89.1%** | 85.4% |
+| Qwen2.5-VL-7B POPE | 84.3% | **88.8%** | 83.9% |
+| Qwen2.5-VL-7B CHAIR | 74.5% | **84.6%** | 83.7% |
+| LLaVA-1.5-13B TextVQA | 80.6% | 80.7% | 52.0% |
+| LLaVA-1.5-13B CHAIR | 75.7% | 76.1% | 57.2% |
+| LLaVA-1.5-13B HallusionBench | 67.1% | 66.5% | 43.5% |
+| Qwen2.5-VL-7B HallusionBench | 64.6% | 69.0% | 63.2% |
+
+The correction is not a free lunch: two cells move *down* slightly, because the rule
+genuinely relocates the operating point rather than sliding everything up.
+
+The never-warn column is what makes the POPE rows meaningful. At the balanced rule
+LLaVA POPE sat at 85.2% against a never-warn baseline of 85.4% -- nominally near an 85%
+bar while separating nothing. At the accuracy rule it is 89.1%, which is 3.7 points of
+real separation from doing nothing.
+
+### Changed
+
+- `--threshold-rule {accuracy,balanced}`, defaulting to `accuracy` so the operating
+  point matches the reported metric. The mismatch is now a flag rather than a silent
+  constant.
+- `tests/test_balanced_report.py` gains three tests: each rule maximises its own
+  objective, the two disagree on an unbalanced benchmark, and an unknown rule is
+  refused. The disagreement test is the one that would have caught the original bug.
+
 ## [Unreleased] — the headline table lives in the repository
 
 The per-cell numbers behind the acceptance claim came from one-off shell scripts kept

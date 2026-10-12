@@ -75,12 +75,25 @@ def rates(labels, predicted):
     return tpr, 1.0 - tnr
 
 
-def best_threshold(scores, labels, grid=GRID) -> float:
-    """Grid threshold maximising balanced accuracy on the half it is given.
+def best_threshold(scores, labels, grid=GRID, rule: str = "accuracy") -> float:
+    """Grid threshold maximising ``rule`` on the half it is given.
+
+    The rule must match the metric being reported. Choosing the operating point to
+    maximise balanced accuracy and then reporting raw accuracy is a mismatch, and on
+    an unbalanced benchmark it costs real points: on POPE, where 15% of items are
+    hallucinated, the balanced-accuracy optimum warns far more often than the
+    accuracy optimum does, and every extra warning is a false positive subtracted
+    from a number that is dominated by the majority class.
 
     Ties go to the higher threshold, the more conservative warning.
     """
-    values = np.array([balanced_accuracy(labels, scores, t) for t in grid])
+    if rule == "accuracy":
+        values = np.array([float((np.asarray(scores) >= t).astype(int)
+                                 .__eq__(np.asarray(labels)).mean()) for t in grid])
+    elif rule == "balanced":
+        values = np.array([balanced_accuracy(labels, scores, t) for t in grid])
+    else:
+        raise ValueError(f"unknown rule {rule!r}; use accuracy or balanced")
     return float(grid[len(grid) - 1 - int(values[::-1].argmax())])
 
 
@@ -93,6 +106,11 @@ def main(argv=None) -> int:
     parser.add_argument("--dev-fraction", type=float, default=DEFAULT_DEV_FRACTION)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--l2", type=float, default=0.05)
+    parser.add_argument("--threshold-rule", choices=("accuracy", "balanced"),
+                        default="accuracy",
+                        help="what the dev half optimises; must match the reported "
+                             "metric, since on an unbalanced benchmark the two "
+                             "optima sit at different operating points")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -119,7 +137,8 @@ def main(argv=None) -> int:
         scores_test = RiskCalibrator(l2=args.l2).fit(
             X[dev], y[dev]).predict_proba(X[test])
         threshold = best_threshold(
-            RiskCalibrator(l2=args.l2).fit(X[dev], y[dev]).predict_proba(X[dev]), y[dev])
+            RiskCalibrator(l2=args.l2).fit(X[dev], y[dev]).predict_proba(X[dev]), y[dev],
+            rule=args.threshold_rule)
         predicted = (scores_test >= threshold).astype(int)
         tpr, fpr = rates(y[test], predicted)
         ba = balanced_accuracy(y[test], scores_test, threshold)
