@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 """Audit the method for uniformity across datasets.
 
-The rule this exists to enforce: **one procedure, run identically on every
-dataset.** A signal that only fires on one benchmark -- because it was built around
-that benchmark's ontology, or its question format, or its label rule -- is not a
-method, it is a per-dataset patch, and a table assembled from per-dataset patches
-does not say anything about the method.
+A diagnostic, not a rule. It reports where each signal's strength actually sits, so
+that a cell leaning on a benchmark-shaped reading can be described that way when the
+number is quoted. Signals specialised to one benchmark are legitimate; the point is
+that a reader who takes such a cell at face value will over-generalise it.
 
 Two things are measured, both on the dev half only:
 
