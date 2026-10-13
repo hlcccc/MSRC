@@ -37,11 +37,19 @@ def balanced_accuracy(labels: Sequence[int], scores: Sequence[float],
                       threshold: float) -> float:
     """``(TPR + TNR) / 2`` -- accuracy on a set with equal numbers of each class.
 
-    This is the project's acceptance metric, and it is *not* a rescaling of raw
-    accuracy. Where hallucinations are 15% of the items, warning about nothing at
-    all scores 85% raw accuracy and 50% balanced accuracy; quoting the raw number
-    against an 85% bar would be quoting the base rate back. The two agree only when
-    the classes are already balanced, which no benchmark here is.
+    A **secondary** reading, not the acceptance metric. The acceptance metric is plain
+    accuracy, by the definition this project is judged against: the share of items
+    judged correctly, high-risk and ordinary alike. Balanced accuracy was used here
+    first, on the argument below, and it is kept because the disagreement between the
+    two is informative rather than because it decides anything.
+
+    The argument it was adopted on, which still holds: it is *not* a rescaling of raw
+    accuracy. Where hallucinations are 15% of the items, warning about nothing at all
+    scores 85% raw accuracy and 50% balanced accuracy, so a raw number quoted alone
+    can be the base rate wearing a result's clothes. That is answered in the report by
+    printing ``从不预警`` -- the same accuracy with no item ever flagged -- beside the
+    achieved one, which makes the base rate visible without substituting a different
+    metric for the one being claimed.
 
     Defined for one class present as well: the missing rate contributes 0, so a
     single-class input reads 0.5 rather than raising. A caller that cares should

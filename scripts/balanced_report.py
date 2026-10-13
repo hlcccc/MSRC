@@ -29,16 +29,22 @@ model, and nothing chooses anything on the test half.
 
 Columns, in the order they should be read:
 
-``检出率`` / ``误报率``   the two halves of the acceptance metric, so a passing
-                          number can be audited rather than trusted
-``平衡准确率``            the acceptance metric itself
-``准确率``                the raw figure, printed beside ``从不预警`` so that a
-                          high value on a rare-hallucination benchmark is visible
-                          as the base rate rather than as a result
-``上界``                  the best balanced accuracy *any* threshold reaches on
-                          test. Selected using test labels: a ceiling, not a
-                          result. When it sits on top of the achieved value, the
-                          threshold is not what is binding.
+``准确率``                **the acceptance metric**: items judged correctly divided by
+                          all items. The threshold that produces it is chosen on dev.
+``从不预警``              what the same accuracy would be if no item were ever
+                          flagged. On a benchmark with few hallucinations this is
+                          most of the accuracy, so a cell that does not beat it has
+                          not demonstrated anything; the two are printed side by side
+                          so that is visible rather than inferable.
+``检出率`` / ``误报率``   the two halves, so a passing number can be audited rather
+                          than trusted
+``平衡准确率``            a footnote, not the acceptance metric. It is the figure the
+                          project used before the metric was corrected, and it is kept
+                          only because the two disagree in a way worth seeing.
+``上界``                  the best accuracy *any* threshold reaches on test. Selected
+                          using test labels: a ceiling, not a result. When it sits on
+                          top of the achieved value, the operating point is not what
+                          is binding -- the score's resolution is.
 """
 
 from __future__ import annotations
@@ -245,7 +251,7 @@ def main(argv=None) -> int:
 
     if args.json:
         print()
-        print(json.dumps({"cells": out, "acceptance_metric": "balanced_accuracy",
+        print(json.dumps({"cells": out, "acceptance_metric": "accuracy",
                           "bar": 0.85, "ceiling_is_selected_on_test": True},
                          indent=2, ensure_ascii=False))
     return 0

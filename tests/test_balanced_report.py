@@ -156,13 +156,16 @@ def test_the_json_payload_carries_the_metric_and_the_bar(tmp_path, capsys):
     assert br.main(["--cell", f"M|D={path}", "--json"]) == 0
     text = capsys.readouterr().out
     payload = json.loads(text[text.index("{", text.index("{")):])
-    assert payload["acceptance_metric"] == "balanced_accuracy"
+    assert payload["acceptance_metric"] == "accuracy"
     assert payload["bar"] == 0.85
     assert payload["ceiling_is_selected_on_test"] is True
     assert set(payload["cells"][0]) >= {
         "tpr", "fpr", "balanced_accuracy", "accuracy", "never_warn_accuracy",
-        "auroc", "balanced_accuracy_ceiling", "passes",
+        "auroc", "balanced_accuracy_ceiling", "accuracy_ceiling", "passes",
     }
+    # The verdict field has to be the plain-accuracy one; the balanced figure is a
+    # footnote and is named as such rather than left to be mistaken for the metric.
+    assert "accuracy_ceiling" in payload["cells"][0]
 
 
 def test_a_malformed_cell_spec_is_rejected_loudly():
