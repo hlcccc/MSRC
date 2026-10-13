@@ -36,10 +36,18 @@ htmlcov/
 # Collected evidence and results. Evidence is expensive to produce (it needs a
 # GPU) and is cached as JSONL; results are regenerated from it. Neither belongs
 # in the repository, and the scripts say how to rebuild them.
+#
+# `/runs/*` rather than `/runs/`, with one exception, because the exception is
+# not a result: `cells.json` says which evidence file backs which cell of the
+# acceptance table. Without it the table can be read but not re-run, which is
+# the exact problem it was added to solve -- and the first version of this rule
+# silently kept it out of the repository while `git status` reported a clean
+# tree, so the commit that claimed to add it did not.
 /evidence/
 /results/
 /artifacts/
-/runs/
+/runs/*
+!/runs/cells.json
 /logs/
 *.log
 /tmp/

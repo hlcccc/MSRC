@@ -1,0 +1,81 @@
+{
+  "root": "/mnt/data/HLC/msrc_run",
+  "note": "Which evidence file backs which cell of the acceptance table. Kept in the repository because the mapping used to live only in ad-hoc shell scripts on the collecting machine, which made the headline table readable but not re-runnable. Paths are relative to 'root' unless absolute.",
+  "cells": [
+    {
+      "model": "LLaVA-1.5-13B",
+      "dataset": "POPE",
+      "path": "evidence_pope_official9000.jsonl"
+    },
+    {
+      "model": "LLaVA-1.5-13B",
+      "dataset": "TextVQA",
+      "path": "evidence_textvqa_2model.jsonl"
+    },
+    {
+      "model": "LLaVA-1.5-13B",
+      "dataset": "CHAIR",
+      "path": "crossmodel/cell_LLaVA-1.5-13B_chair_3model.jsonl"
+    },
+    {
+      "model": "LLaVA-1.5-13B",
+      "dataset": "HallusionBench",
+      "path": "evidence_hallusion.jsonl"
+    },
+    {
+      "model": "LLaVA-1.5-13B",
+      "dataset": "OKVQA",
+      "path": "crossmodel/cell_LLaVA-1.5-13B_okvqa.jsonl"
+    },
+    {
+      "model": "Qwen2.5-VL-7B",
+      "dataset": "POPE",
+      "path": "crossmodel/cell_Qwen2.5-VL-7B_pope_official.jsonl"
+    },
+    {
+      "model": "Qwen2.5-VL-7B",
+      "dataset": "TextVQA",
+      "path": "crossmodel/cell_Qwen2.5-VL-7B_textvqa.jsonl"
+    },
+    {
+      "model": "Qwen2.5-VL-7B",
+      "dataset": "CHAIR",
+      "path": "crossmodel/cell_Qwen2.5-VL-7B_chair_128_3model.jsonl"
+    },
+    {
+      "model": "Qwen2.5-VL-7B",
+      "dataset": "HallusionBench",
+      "path": "crossmodel/cell_Qwen2.5-VL-7B_hallusion.jsonl"
+    },
+    {
+      "model": "Qwen2.5-VL-7B",
+      "dataset": "OKVQA",
+      "path": "crossmodel/cell_Qwen2.5-VL-7B_okvqa.jsonl"
+    },
+    {
+      "model": "InternVL3-8B",
+      "dataset": "POPE",
+      "path": "crossmodel/cell_InternVL3-8B_pope_official.jsonl"
+    },
+    {
+      "model": "InternVL3-8B",
+      "dataset": "TextVQA",
+      "path": "crossmodel/cell_InternVL3-8B_textvqa.jsonl"
+    },
+    {
+      "model": "InternVL3-8B",
+      "dataset": "CHAIR",
+      "path": "crossmodel/cell_InternVL3-8B_chair_3model.jsonl"
+    },
+    {
+      "model": "InternVL3-8B",
+      "dataset": "HallusionBench",
+      "path": "crossmodel/cell_InternVL3-8B_hallusion.jsonl"
+    },
+    {
+      "model": "InternVL3-8B",
+      "dataset": "OKVQA",
+      "path": "crossmodel/cell_InternVL3-8B_okvqa.jsonl"
+    }
+  ]
+}
