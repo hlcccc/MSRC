@@ -260,3 +260,41 @@ object again — saturates as evidence, because a model that consistently confus
 thing for another keeps naming it. That is the gap `cross_model_object_support` was
 added to attack from a different direction, and it is a genuinely independent source
 rather than more of the same one.
+
+---
+
+## Padding the cross-model channel with the donor's own re-phrasings
+
+**Idea.** Reading the two larger readings above backwards gives a cheap prediction: if
+`object_support` saturates because one model's re-readings are correlated, then a
+*second model's* re-readings should not — they are correlated with each other but not
+with the first model. And the three CHAIR cells were collected on one set of 1,200
+images, so every cell already stores the other two models' four re-phrasings and three
+resamples, at no collection cost. The cross-model channel would go from 3 descriptions
+per item to about 16.
+
+**Measured.** Three CHAIR cells, 14 split seeds, paired on the same items, threshold
+chosen on dev and reported on test. The comparison is against the *same* run with only
+the donors' primary captions added — the configuration that had just lifted Qwen CHAIR
+by 3.21 points.
+
+**Result: no gain, and slightly negative.**
+
+| cell | donors' captions only | plus their re-phrasings | paired ΔACC | seeds improved |
+|---|---|---|---|---|
+| LLaVA-1.5-13B CHAIR | 78.05% | 78.27% | **+0.23** | 8/14 |
+| Qwen2.5-VL-7B CHAIR | 87.51% | 86.96% | **−0.55** | 2/14 |
+| InternVL3-8B CHAIR | 81.61% | 80.98% | **−0.63** | 5/14 |
+
+Not adopted. The bar for this one was set at 14/14 seeds improving rather than the usual
+10/14, because several related hypotheses had already been tested on these same three
+cells and each additional test raises the chance of a fluke.
+
+**Why, and what it implies.** A donor's re-phrasings are asked with the prompt variants
+("Answer briefly", "Answer in one or two words"), which on a captioning benchmark
+produce shorter and more formulaic descriptions than the donor's primary caption. So the
+extra readings are not a larger sample of the same thing: they are a *different and
+weaker* thing, and they dilute a channel whose strength was that a second model had
+looked independently. The useful quantity in this channel is independence, not volume —
+which is the same lesson as the reading-budget entry above, arrived at from the opposite
+direction. One genuinely independent description beat twelve correlated ones.
