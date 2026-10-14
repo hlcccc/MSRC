@@ -33,12 +33,17 @@ a deployment than the headline:
   requested 0.10. A deployment sees the conditional number, not the expectation.
 * **``BY`` had no power at any usable sample size.** At 800 items it rejected
   nothing at all in 100 out of 100 draws up to ``alpha = 0.15``. Split-conformal
-  p-values are multiples of ``1/(n+1)``, so a rejection needs roughly
-  ``n_calibration >= n_test / alpha`` null items before it is even possible; with a
-  few hundred calibration items and a few hundred tests, ``BY``'s harmonic
-  correction puts every threshold below that floor. It is the safer default under
-  dependence and it is unusable at this scale. ``power_condition()`` in
-  ``scripts/validate_conformal.py`` computes the requirement.
+  p-values are multiples of ``1/(n+1)``, so a rejection at rank ``k`` implies
+  ``1/(n+1) <= k*alpha/(m*c_m)``; the loosest such threshold sits at rank ``m``,
+  giving ``n_calibration >= c_m/alpha - 1``. For ``BH`` that is nine calibration
+  items at ``alpha = 0.1``; for ``BY`` with ``m = 100`` it is about 51. Both are
+  reachable at the sample sizes used here, so the empty selections are a property
+  of the p-value distribution rather than of an unreachable threshold. The
+  measurement is what establishes the finding; ``power_condition()`` in
+  ``scripts/validate_conformal.py`` states the reachability bound and explicitly
+  does not claim to be a power guarantee. (An earlier version of that bound read
+  the rank-1 threshold as binding and returned ``m/alpha``; step-up starts at the
+  largest p-value, so rank 1 is the last comparison reached, not the first.)
 """
 
 from __future__ import annotations

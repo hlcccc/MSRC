@@ -33,12 +33,17 @@ def cap_gpu_memory(fraction: float, *devices: str) -> None:
     if fraction == 0:
         return
 
+    cuda_devices = [str(d or "") for d in devices if str(d or "").startswith("cuda")]
+    if not cuda_devices:
+        # The cap is a no-op without a cuda device, so a CPU-only run returns here.
+        # Importing torch before this check turned a pure-CPU path into an
+        # ImportError on stacks that never install torch -- a validation host, for
+        # instance, which is exactly where this gets called.
+        return
+
     import torch
 
-    for device in devices:
-        name = str(device or "")
-        if not name.startswith("cuda"):
-            continue
+    for name in cuda_devices:
         index = int(name.split(":", 1)[1]) if ":" in name else torch.cuda.current_device()
         torch.cuda.set_per_process_memory_fraction(fraction, index)
         total = torch.cuda.get_device_properties(index).total_memory

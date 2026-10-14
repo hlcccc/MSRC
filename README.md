@@ -10,7 +10,7 @@ use more than the model's text, which is the point:
 | | signal | kind | borrowed from |
 |---|---|---|---|
 | 1 | `self_consistency` | external | SelfCheckGPT (Manakul et al., EMNLP 2023) |
-| 2 | `resample_consistency` | external | Semantic Entropy (Kuhn et al., ICLR 2024) |
+| 2 | `resample_consistency` | external | Semantic Entropy (Kuhn et al., ICLR 2023) — string-cluster form, see note below |
 | 3 | `typed_verification` | external | typed evidence probing |
 | 4 | `cross_model_agreement` | external | cross-model / judge agreement |
 | 5 | `grounding_check` | external | retrieval- and rule-grounded checking |
@@ -26,6 +26,27 @@ The risk is factual: **does the answer contradict the image?** Content-safety ri
 — does the answer violate a stated policy — is a different question with a
 different label and different evidence. It used to share this decision layer and it
 no longer does; it is modelled outside this repository.
+
+### Where the borrowed names overstate what is implemented
+
+Two of the names in the table are looser than their citation suggests. The
+difference is stated here rather than left to be discovered in the code:
+
+* **`resample_consistency` is a string-cluster entropy, not semantic entropy.**
+  Re-sampled answers are clustered by normalised string equality, with no entailment
+  or paraphrase judgement. `a red car` and `the car is red` therefore fall into two
+  clusters and score maximum entropy, and the containment rule in `agreement()`
+  scores `a car` against `no car` at 0.9. Kuhn et al. (ICLR 2023) cluster by
+  bidirectional entailment; this does not, so it must not be described as a faithful
+  implementation of that method.
+* **Missing readings enter the feature vector as `risk = 0.0`.** The value is
+  recorded as unavailable and named in the fit warnings, but the number that reaches
+  the calibrator is 0.0 — a *low-risk* value. On a column that is unavailable for
+  every item the column is constant and the L2 penalty drives its weight to zero,
+  which is harmless. On a column that is available for a minority of items it is
+  not: "could not be read" is then encoded as "no risk", and the model can learn
+  that absence of evidence is evidence of safety. See
+  `docs/signal-applicability.md` for the per-cell counts.
 
 ### How many of them actually run
 

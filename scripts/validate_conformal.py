@@ -140,18 +140,35 @@ def verdict(summary) -> str:
     return "holds"
 
 
-def power_condition(alpha: float, m_test: int) -> int:
-    """Calibration items needed before any rejection is possible at this alpha.
+def power_condition(alpha: float, m_test: int, procedure: str = "BH") -> int:
+    """Smallest null calibration set at which a rejection is *possible*.
 
-    Split-conformal p-values are multiples of ``1/(n+1)``, so the smallest one the
-    procedure can produce is ``1/(n+1)``. Step-up at level ``alpha`` over ``m``
-    tests compares against ``alpha/(m*c_m)`` at the first rank, so nothing can ever
-    be rejected unless ``1/(n+1) <= alpha/m`` roughly -- i.e. the null calibration
-    set has to be larger than the test set divided by alpha. With a few hundred
-    test items and alpha = 0.1 that is thousands of calibration items, which is why
-    this is worth stating rather than discovering from an empty selection.
+    Deliberately **not** ``m_test / alpha``. That figure came from treating the
+    rank-1 threshold ``alpha/m`` as a precondition for any rejection, but step-up
+    walks from the *largest* p-value downwards, so rank 1 is the last comparison it
+    reaches, not the first: a procedure can reject at rank k >= 2 while rank 1
+    clears nothing.
+
+    What is actually necessary: split-conformal p-values are multiples of
+    ``1/(n+1)``, so the smallest available value is ``1/(n+1)``, and a rejection at
+    rank k implies
+
+        ``1/(n+1) <= p_(k) <= k*alpha/(m*c_m) <= alpha/c_m``
+
+    where ``c_m`` is 1 for BH and the harmonic sum ``sum(1/i)`` for BY. Hence
+    ``n >= c_m/alpha - 1``: nine calibration items at ``alpha = 0.1`` under BH,
+    and about 51 for ``m = 100`` under BY.
+
+    This is a bound on reachability, not a promise of power. BY's measured
+    no-power result on this project's data stands on its own measurement -- the
+    thresholds are reachable at those sample sizes, so the empty selections came
+    from the p-value distribution, not from an unreachable threshold.
     """
-    return int(np.ceil(m_test / max(alpha, 1e-12)))
+    if str(procedure).upper() == "BY":
+        c_m = sum(1.0 / i for i in range(1, max(int(m_test), 1) + 1))
+    else:
+        c_m = 1.0
+    return int(np.ceil(c_m / max(alpha, 1e-12) - 1))
 
 
 def main(argv=None) -> int:
@@ -260,11 +277,13 @@ def main(argv=None) -> int:
     print()
 
     outcome = verdict(summary)
-    print("  一个拒绝要成为可能，null 校准集需要多大（约 n_test / alpha）:")
+    print("  一个拒绝要成为可能，null 校准集至少需要多大（阈值可达性下界）:")
     for row in summary:
-        needed = power_condition(row["alpha"], max(mean_test, 1))
-        print(f"    alpha={row['alpha']:.2f}  需要约 {needed} 个 null 校准项"
+        proc = str(row.get("procedure", "BH"))
+        needed = power_condition(row["alpha"], max(mean_test, 1), proc)
+        print(f"    alpha={row['alpha']:.2f}  {proc}  至少 {needed} 个 null 校准项"
               f"（本次约 {mean_null} 个）")
+    print("  注意：这是「阈值能不能被够到」的下界，不是功效的保证。够得到不等于拒得掉。")
     print()
     if outcome == "no_power":
         print("  结论: 选不出任何条目 —— 不是保证被违反，而是这个样本量下没有功效。")

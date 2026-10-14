@@ -59,36 +59,57 @@ ACCURACY_BAR = 0.85
 def load_cell(path: Path):
     rows = [json.loads(line) for line in
             path.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
-    matrix, labels, groups = [], [], []
+    matrix, labels, groups, avail = [], [], [], []
     for row in rows:
         report = build_report(Evidence.from_dict(row["evidence"]))
         matrix.append(report.vector())
+        avail.append([s.available for s in report.signals])
         labels.append(int(row["label"]))
         groups.append(image_group_id(row))
-    return np.asarray(matrix, float), np.asarray(labels, int), np.asarray(groups)
+    return (np.asarray(matrix, float), np.asarray(labels, int),
+            np.asarray(groups), np.asarray(avail, bool))
 
 
-def analyse(matrix, labels, groups, l2=0.05):
+def analyse(matrix, labels, groups, l2=0.05, avail=None, missing_policy="zero"):
     dev, test = grouped_split(groups, dev_fraction=DEFAULT_DEV_FRACTION, seed=DEFAULT_SEED)
     if len(set(labels[dev])) < 2 or len(set(labels[test])) < 2:
         return None
 
-    live = [i for i in range(matrix.shape[1])
-            if float(np.ptp(matrix[dev, i])) > 1e-12]
+    # What an unreadable cell contributes. ``zero`` is the historical behaviour and
+    # it is not neutral: on a column readable for only part of the items it encodes
+    # "could not be read" as "no risk". ``mean`` uses the development-set mean of
+    # the readings that were available -- estimated on dev only, so no test
+    # information reaches the fill values.
+    X = matrix
+    fill_info = None
+    if missing_policy == "mean":
+        if avail is None:
+            raise ValueError("missing_policy='mean' needs the availability mask")
+        fill = np.zeros(matrix.shape[1], dtype=float)
+        for i in range(matrix.shape[1]):
+            seen = matrix[dev][avail[dev][:, i], i]
+            fill[i] = float(seen.mean()) if seen.size else 0.0
+        X = np.where(avail, matrix, fill[None, :])
+        fill_info = {SIGNAL_NAMES[i]: round(float(fill[i]), 4)
+                     for i in range(matrix.shape[1])
+                     if not avail[:, i].all()}
+
+    live = [i for i in range(X.shape[1])
+            if float(np.ptp(X[dev, i])) > 1e-12]
     # The strongest single signal, by distance from chance on dev, oriented.
-    per_signal = {SIGNAL_NAMES[i]: auroc(labels[dev], matrix[dev, i]) for i in live}
+    per_signal = {SIGNAL_NAMES[i]: auroc(labels[dev], X[dev, i]) for i in live}
     best = max(per_signal, key=lambda k: abs(per_signal[k] - 0.5))
     best_index = SIGNAL_NAMES.index(best)
-    before = matrix[test, best_index].copy()
+    before = X[test, best_index].copy()
     if per_signal[best] < 0.5:
         before = 1.0 - before
     before = np.clip(before, 0.0, 1.0)
 
-    fitter = RiskCalibrator(l2=l2).fit(matrix[dev], labels[dev])
-    dev_scores = fitter.predict_proba(matrix[dev])
+    fitter = RiskCalibrator(l2=l2).fit(X[dev], labels[dev])
+    dev_scores = fitter.predict_proba(X[dev])
     accs = np.array([float(((dev_scores >= t).astype(int) == labels[dev]).mean()) for t in GRID])
     threshold = float(GRID[len(GRID) - 1 - int(accs[::-1].argmax())])
-    scores = fitter.predict_proba(matrix[test])
+    scores = fitter.predict_proba(X[test])
 
     e_before = ece(labels[test], before, n_bins=MAIN_BINS)
     e_after = ece(labels[test], scores, n_bins=MAIN_BINS)
@@ -113,6 +134,8 @@ def analyse(matrix, labels, groups, l2=0.05):
         "ceiling": max(float((((scores >= t).astype(int)) == labels[test]).mean()) for t in GRID),
         "passes": accuracy >= ACCURACY_BAR,
         "ece_passes": gain >= ECE_BAR,
+        "missing_policy": missing_policy,
+        "missing_fill": fill_info,
     }
 
 
@@ -121,6 +144,12 @@ def main(argv=None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--datasets", default="")
+    parser.add_argument("--missing-policy", default="zero", choices=("zero", "mean"),
+                        help="what an unreadable signal contributes to the design "
+                             "matrix. 'zero' is the historical behaviour; 'mean' "
+                             "fills with the development-set mean of the available "
+                             "readings, which does not encode 'could not be read' "
+                             "as 'no risk'.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -148,8 +177,9 @@ def main(argv=None) -> int:
             rows.append({"model": entry["model"], "dataset": entry["dataset"],
                          "missing": True})
             continue
-        matrix, labels, groups = load_cell(full)
-        stats = analyse(matrix, labels, groups)
+        matrix, labels, groups, avail = load_cell(full)
+        stats = analyse(matrix, labels, groups, avail=avail,
+                        missing_policy=args.missing_policy)
         if stats is None:
             rows.append({"model": entry["model"], "dataset": entry["dataset"], "missing": True})
             continue

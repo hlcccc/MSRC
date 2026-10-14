@@ -213,6 +213,13 @@ def agreement(a: str, b: str) -> float:
     are the same answer at different resolutions. Anything else falls back to a
     token-overlap ratio, which is what catches "a red car" against "the car is
     red" without pretending they are identical strings.
+
+    Known limitation, and not a small one: the containment rule is blind to
+    negation. ``"no car"`` contains ``"car"``, so a pair that contradicts itself
+    scores 0.9. Every consistency signal built on this function inherits the error.
+    Repairing it means a negation-aware or entailment-based comparison, which is a
+    change of method rather than of threshold, and it moves every number in the
+    tables -- so it is recorded here rather than quietly patched.
     """
     na, nb = normalize_text(a), normalize_text(b)
     if not na and not nb:
@@ -238,16 +245,22 @@ def _mean_agreement(texts: Sequence[str], reference: str) -> float:
 def cluster_entropy(texts: Sequence[str]) -> float:
     """Shannon entropy of the answers after clustering, normalised to ``[0, 1]``.
 
-    This is the semantic-entropy idea in its simplest form: answers are grouped by
-    whether they mean the same thing (normalised string equality here), and the
-    entropy of the resulting distribution measures how undecided the model is. A
-    model that says the same thing five times has entropy 0; one that gives five
-    different answers has entropy 1.
+    This is the semantic-entropy *idea* in its crudest form, and the gap matters:
+    answers are grouped by **normalised string equality**, not by whether they mean
+    the same thing. Two paraphrases of the same answer therefore land in different
+    clusters and score maximum entropy. Kuhn et al. (ICLR 2023) cluster by
+    bidirectional entailment; this function does not, so results from it should be
+    described as a string-cluster entropy rather than as semantic entropy.
+
+    A model that says the same thing five times has entropy 0; one that gives five
+    different strings has entropy 1.
 
     Normalising by ``log(n)`` makes the value comparable across sample counts,
     which matters because K is a deployment dial -- an unnormalised entropy would
     make a K=5 deployment look more uncertain than a K=3 one for the same model
-    behaviour, and the threshold would stop meaning anything.
+    behaviour, and the threshold would stop meaning anything. Normalising is a
+    rescaling, not a guarantee: the estimate and its variance still move with K,
+    so a threshold fitted at one K does not transfer silently to another.
     """
     import math
 

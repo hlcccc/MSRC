@@ -57,6 +57,23 @@ class MSRCConfig:
     #: resampling entropy. Off by default: the head needs enough labelled items to
     #: be worth fitting, and refusing to fit is safer than fitting badly.
     use_fusion: bool = False
+    #: What an unreadable signal contributes to the feature vector.
+    #:
+    #: ``"zero"`` is the historical behaviour: ``SignalValue.risk`` is 0.0 when a
+    #: signal reports itself unavailable, and that 0.0 goes into the design matrix
+    #: as a reading. On a column that is unavailable for *every* item the column is
+    #: constant, L2 drives its weight to zero, and nothing is wrong. On a column
+    #: that is unavailable for *part* of the items -- which is the common case here,
+    #: see ``docs/signal-applicability.md`` -- it encodes "could not be read" as
+    #: "no risk", and the fit is free to learn that absence of evidence is evidence
+    #: of safety.
+    #:
+    #: ``"mean"`` fills those cells with the mean of the readings that *were*
+    #: available in the development set. That value carries no claim about the item,
+    #: so the column simply loses variance and the L2 penalty decides how much it is
+    #: used. It is the honest default for a partially-available column; ``"zero"``
+    #: is kept so previously reported numbers stay reproducible.
+    missing_policy: str = "zero"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -92,10 +109,40 @@ class MSRCPipeline:
         #: Fixed signal order. Frozen at fit time and stored with the scorer so a
         #: later scoring run cannot silently use a different column order.
         self.signal_names: List[str] = []
+        #: Per-signal fill value for unreadable cells, learned on the development
+        #: set. Only populated when ``config.missing_policy == "mean"``.
+        self.missing_fill_: Optional[np.ndarray] = None
 
     # ------------------------------------------------------------------
     # Evidence -> features
     # ------------------------------------------------------------------
+    @staticmethod
+    def _fill_values(reports: Sequence[SignalReport],
+                     policy: str) -> Optional[np.ndarray]:
+        """Per-signal replacement for cells where the signal could not be read."""
+        if policy != "mean" or not reports:
+            return None
+        width = len(reports[0].signals)
+        fill = np.zeros(width, dtype=np.float64)
+        for i in range(width):
+            seen = [r.signals[i].risk for r in reports
+                    if i < len(r.signals) and r.signals[i].available]
+            fill[i] = float(np.mean(seen)) if seen else 0.0
+        return fill
+
+    def _vector(self, report: SignalReport,
+                fill: Optional[np.ndarray] = None) -> List[float]:
+        """One item's feature row, with unreadable cells handled by policy."""
+        out: List[float] = []
+        for i, signal in enumerate(report.signals):
+            if signal.available:
+                out.append(signal.risk)
+            elif fill is not None and i < len(fill):
+                out.append(float(fill[i]))
+            else:
+                out.append(0.0)
+        return out
+
     def _report_for(self, evidence: Evidence) -> SignalReport:
         report = build_report(evidence)
         if not self.signal_names:
@@ -115,7 +162,7 @@ class MSRCPipeline:
         :meth:`Evidence.to_dict`) to reuse readings collected earlier instead of
         calling the model again -- which is how a large evaluation is run.
         """
-        vectors: List[List[float]] = []
+        reports: List[SignalReport] = []
         labels: List[int] = []
         call_count = 0
         missing_seen: Dict[str, int] = {}
@@ -144,15 +191,18 @@ class MSRCPipeline:
             for name in report.missing():
                 missing_seen[name] = missing_seen.get(name, 0) + 1
 
+            reports.append(report)
             labels.append(int(record[label_key]))
-            # Unavailable signals enter as 0.0 risk. That is a *value*, not a
-            # silent default: the column becomes constant, the L2 penalty shrinks
-            # its weight toward zero, and the provenance below records that it was
-            # never available. The warning is what stops it being invisible.
-            vectors.append([s.risk for s in report.signals])
 
-        if not vectors:
+        if not reports:
             raise ValueError("no usable records")
+
+        # Unreadable cells are filled by policy *before* the design matrix is built,
+        # so fitting and scoring apply the same rule. See MSRCConfig.missing_policy:
+        # filling with 0.0 is not neutral when a column is readable for only part of
+        # the items -- it turns "could not be read" into "no risk".
+        self.missing_fill_ = self._fill_values(reports, self.config.missing_policy)
+        vectors = [self._vector(r, self.missing_fill_) for r in reports]
         X = np.asarray(vectors, dtype=np.float64)
         y = np.asarray(labels, dtype=np.int64)
 
@@ -307,7 +357,7 @@ class MSRCPipeline:
                 "order silently applies the wrong weights."
             )
 
-        vector = np.asarray([report.vector()], dtype=np.float64)
+        vector = np.asarray([self._vector(report, self.missing_fill_)], dtype=np.float64)
         score = float(self.calibrator.predict_proba(vector)[0])
 
         if self.config.use_fusion and self.fusion is not None and self.fusion.fitted:
@@ -341,6 +391,8 @@ class MSRCPipeline:
             "config": self.config.to_dict(),
             "signal_names": list(self.signal_names),
             "provenance": dict(self.provenance),
+            "missing_fill": (None if self.missing_fill_ is None
+                             else self.missing_fill_.tolist()),
             "calibrator": None
             if not self.fitted_
             else {
@@ -386,6 +438,14 @@ class MSRCPipeline:
         pipeline.signal_names = list(payload.get("signal_names", []))
         pipeline.provenance = dict(payload.get("provenance") or {})
         pipeline.fit_warnings = list(pipeline.provenance.get("fit_warnings") or [])
+        fill = payload.get("missing_fill")
+        pipeline.missing_fill_ = (np.asarray(fill, dtype=np.float64)
+                                  if fill is not None else None)
+        if config.missing_policy == "mean" and pipeline.missing_fill_ is None:
+            pipeline.fit_warnings.append(
+                "missing_policy is 'mean' but the scorer file carries no fill "
+                "values; unreadable cells will fall back to 0.0. Re-fit and re-save."
+            )
 
         expected = list(SIGNAL_NAMES)
         if pipeline.signal_names and set(pipeline.signal_names) != set(expected):

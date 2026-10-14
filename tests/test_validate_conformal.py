@@ -100,15 +100,22 @@ def test_the_share_within_alpha_counts_empty_draws_as_successes():
 # power_condition
 # ---------------------------------------------------------------------------
 
-def test_the_power_condition_scales_the_calibration_set_with_the_test_set():
-    """A rejection needs roughly n_calibration >= n_test / alpha null items.
+def test_the_power_condition_comes_from_rank_m_not_rank_one():
+    """The binding threshold is the loosest one, at rank m.
 
-    This is why BY rejected nothing at all on real data: with a few hundred
-    calibration items and a few hundred tests, no threshold is reachable.
+    An earlier version of this function returned ``m / alpha``, which assumed the
+    rank-1 threshold ``alpha/m`` had to be cleared before anything could be
+    rejected. Step-up walks from the largest p-value downwards, so rank 1 is the
+    last comparison it reaches, not the first, and a rejection at rank k >= 2 is
+    possible with a far smaller calibration set.
     """
-    assert validation.power_condition(0.10, 100) == 1000
-    assert validation.power_condition(0.50, 100) == 200
-    assert validation.power_condition(0.10, 1000) == 10000
+    # BH: 1/alpha - 1, independent of how many tests there are.
+    assert validation.power_condition(0.10, 100) == 9
+    assert validation.power_condition(0.50, 100) == 1
+    assert validation.power_condition(0.10, 1000) == 9
+    # BY divides by the harmonic factor c_m, so it does grow with m.
+    assert validation.power_condition(0.10, 100, "BY") == 51
+    assert validation.power_condition(0.10, 1000, "BY") > 70
 
 
 def test_the_power_condition_is_monotone_in_alpha():
