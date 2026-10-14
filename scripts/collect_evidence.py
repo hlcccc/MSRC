@@ -119,6 +119,73 @@ def yes_no_label(generated: str, reference: str, *, parser: str = "legacy"):
     return (0 if verdict == str(reference or "").strip().lower() else 1), True
 
 
+def collection_fingerprint(args) -> dict:
+    """Everything about the run that changes what a reading *means*.
+
+    Resume matches on the item key alone. Changing a generation setting therefore
+    kept the rows already collected and appended new ones produced under different
+    settings, in one file, with nothing recording that it happened -- which is how
+    a cell ended up with 460 answers capped at 64 tokens and 740 at 128. Anything
+    listed here changes the readings, so a resume that changes one is refused.
+    Deliberately excluded: input and output paths, batch size, thread counts --
+    those change how the run is executed, not what a reading means.
+    """
+    keys = (
+        "provider", "model_path", "max_new_tokens", "k", "seed", "dtype",
+        "want_attention", "want_image_contrast", "max_pixels",
+        "second_provider", "second_model_path", "no_ocr",
+        "answer_parser", "answer_format",
+    )
+    out = {}
+    for key in keys:
+        if not hasattr(args, key):
+            continue
+        value = getattr(args, key)
+        out[key] = value if isinstance(value, (str, int, float, bool)) or value is None \
+            else str(value)
+    return out
+
+
+def check_resume_manifest(out_path: Path, fingerprint: dict) -> None:
+    """Refuse to resume into an output collected under different settings.
+
+    Without this, changing ``--max-new-tokens`` (or the model path, or ``k``) keeps
+    the rows already collected and appends new ones produced under the new setting,
+    in one file, with nothing recording that it happened. That is how a cell ended
+    up holding 460 answers capped at 64 tokens and 740 at 128.
+
+    Writes the manifest on the way through, so a run that is interrupted still
+    leaves a record of the settings it was using.
+    """
+    manifest_path = out_path.with_name(out_path.name + ".manifest.json")
+    if out_path.exists() and manifest_path.exists():
+        recorded = json.loads(manifest_path.read_text(encoding="utf-8"))
+        previous = recorded.get("fingerprint") or {}
+        if previous != fingerprint:
+            diff = {k: [previous.get(k), fingerprint.get(k)]
+                    for k in set(previous) | set(fingerprint)
+                    if previous.get(k) != fingerprint.get(k)}
+            raise SystemExit(
+                "this output was collected under a different configuration; resuming "
+                "would mix protocols in one file.\n  differing settings [was, now]: "
+                + json.dumps(diff, ensure_ascii=False, indent=2)
+                + "\n  Collect to a new --out, or delete the output to re-collect it."
+            )
+    elif out_path.exists():
+        with out_path.open(encoding="utf-8-sig") as probe:
+            if any(json.loads(line).get("evidence") for line in probe if line.strip()):
+                print(
+                    "[collect] WARNING: this output predates configuration manifests, "
+                    "so the settings it was collected under cannot be verified. "
+                    "Resuming into it can mix generation budgets without saying so."
+                )
+    manifest_path.write_text(
+        json.dumps({"fingerprint": fingerprint, "out": str(out_path)},
+                   ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def build_provider(args):
     """Build the model provider the collection loop drives.
 
@@ -297,6 +364,10 @@ def main() -> int:
 
     out_path = Path(args.out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Record what this run's readings will mean, and refuse to resume into a file
+    # collected under different settings.
+    check_resume_manifest(out_path, collection_fingerprint(args))
 
     # The resume key has to identify the *item*, not the image. POPE names a record
     # `pope:{split}:{image_id}`, and one image is polled about several objects, so

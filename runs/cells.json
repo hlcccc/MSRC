@@ -1,6 +1,31 @@
 {
   "root": "/mnt/data/HLC/msrc_run",
-  "note": "Which evidence file backs which cell of the acceptance table. Kept in the repository because the mapping used to live only in ad-hoc shell scripts on the collecting machine, which made the headline table readable but not re-runnable. Paths are relative to 'root' unless absolute.",
+  "note": "Which evidence file backs which cell of the acceptance table. Kept in the repository because the mapping used to live only in ad-hoc shell scripts on the collecting machine, which made the headline table readable but not re-runnable. Paths are relative to 'root' unless absolute. CHAIR and TextVQA point at corrected collections (2026-10-13) -- see 'corrections' below; running summary_table.py against this manifest therefore reproduces the corrected table, not the one reported earlier.",
+  "corrections": {
+    "date": "2026-10-13",
+    "CHAIR": {
+      "why": "the cross-model channel had been grown by appending and de-duplicated on the answer string alone, so the three cells did not carry the same number of donor readings (3, 3 and 2) and no field recorded which model any reading came from",
+      "what": "rebuilt with exactly the other two models' current primary answers per cell, each tagged provider/provider_file/provider_sha256 in its meta",
+      "built_by": "scripts/rebuild_cross_model_chair.py",
+      "receipt": "crossmodel/rebuilt_20261013/receipt.json",
+      "supersedes": [
+        "crossmodel/cell_LLaVA-1.5-13B_chair_3model.jsonl",
+        "crossmodel/cell_Qwen2.5-VL-7B_chair_128_3model.jsonl",
+        "crossmodel/cell_InternVL3-8B_chair_3model.jsonl"
+      ]
+    },
+    "TextVQA": {
+      "why": "the in-repo label function used this project's own normalise_text; the scoring shape matched the official evaluator but the normalisation did not, so the labels were not the official ones",
+      "what": "relabelled with the official VQA normalisation; every row also carries official_vqa_score and label_original_rule so both readings can be compared",
+      "built_by": "scripts/relabel_textvqa_official.py",
+      "receipt": "official_textvqa_20261013/receipt.json",
+      "supersedes": [
+        "evidence_textvqa_2model.jsonl",
+        "crossmodel/cell_Qwen2.5-VL-7B_textvqa.jsonl",
+        "crossmodel/cell_InternVL3-8B_textvqa.jsonl"
+      ]
+    }
+  },
   "cells": [
     {
       "model": "LLaVA-1.5-13B",
@@ -10,12 +35,12 @@
     {
       "model": "LLaVA-1.5-13B",
       "dataset": "TextVQA",
-      "path": "evidence_textvqa_2model.jsonl"
+      "path": "official_textvqa_20261013/cell_LLaVA-1.5-13B_textvqa_official.jsonl"
     },
     {
       "model": "LLaVA-1.5-13B",
       "dataset": "CHAIR",
-      "path": "crossmodel/cell_LLaVA-1.5-13B_chair_3model.jsonl"
+      "path": "crossmodel/rebuilt_20261013/cell_LLaVA-1.5-13B_chair_2model.jsonl"
     },
     {
       "model": "LLaVA-1.5-13B",
@@ -35,12 +60,12 @@
     {
       "model": "Qwen2.5-VL-7B",
       "dataset": "TextVQA",
-      "path": "crossmodel/cell_Qwen2.5-VL-7B_textvqa.jsonl"
+      "path": "official_textvqa_20261013/cell_Qwen2.5-VL-7B_textvqa_official.jsonl"
     },
     {
       "model": "Qwen2.5-VL-7B",
       "dataset": "CHAIR",
-      "path": "crossmodel/cell_Qwen2.5-VL-7B_chair_128_3model.jsonl"
+      "path": "crossmodel/rebuilt_20261013/cell_Qwen2.5-VL-7B_chair_2model.jsonl"
     },
     {
       "model": "Qwen2.5-VL-7B",
@@ -60,12 +85,12 @@
     {
       "model": "InternVL3-8B",
       "dataset": "TextVQA",
-      "path": "crossmodel/cell_InternVL3-8B_textvqa.jsonl"
+      "path": "official_textvqa_20261013/cell_InternVL3-8B_textvqa_official.jsonl"
     },
     {
       "model": "InternVL3-8B",
       "dataset": "CHAIR",
-      "path": "crossmodel/cell_InternVL3-8B_chair_3model.jsonl"
+      "path": "crossmodel/rebuilt_20261013/cell_InternVL3-8B_chair_2model.jsonl"
     },
     {
       "model": "InternVL3-8B",

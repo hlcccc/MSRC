@@ -114,9 +114,15 @@ def main() -> int:
                     skipped[donor] += 1
                     continue
                 primary = dict(src["evidence"]["primary"])
-                primary["provider"] = donor
-                primary["provider_file"] = digests[donor]["file"]
-                primary["provider_sha256"] = digests[donor]["sha256"]
+                # Provenance goes in `meta`, which Evidence serialises -- a bare
+                # top-level key would be dropped the first time the file is read
+                # and written back, and the whole point of tagging a donor is that
+                # the tag survives.
+                primary["meta"] = {
+                    "provider": donor,
+                    "provider_file": digests[donor]["file"],
+                    "provider_sha256": digests[donor]["sha256"],
+                }
                 channel.append(primary)
                 joined[donor] += 1
 

@@ -98,7 +98,7 @@ class Evidence:
     # that a reviewer can inspect exactly what each signal was computed from.
     def to_dict(self) -> Dict[str, object]:
         def sample(s: Sample) -> Dict[str, object]:
-            return {
+            payload: Dict[str, object] = {
                 "text": s.text,
                 "sequence_confidence": s.sequence_confidence,
                 "sequence_entropy": s.sequence_entropy,
@@ -106,6 +106,12 @@ class Evidence:
                 "first_token_margin": s.first_token_margin,
                 "image_contrast": s.image_contrast,
             }
+            # Provenance for a sample that did not come from this run -- a
+            # cross-model donor, say. Dropped when empty so existing files keep
+            # their shape.
+            if s.meta:
+                payload["meta"] = dict(s.meta)
+            return payload
 
         return {
             "question": self.question,
@@ -147,6 +153,7 @@ class Evidence:
                 visual_attention_mass=d.get("visual_attention_mass"),
                 first_token_margin=d.get("first_token_margin"),
                 image_contrast=d.get("image_contrast"),
+                meta=dict(d["meta"]) if isinstance(d.get("meta"), dict) else {},
             )
 
         def sample_list(value: object, field: str) -> List[Sample]:
