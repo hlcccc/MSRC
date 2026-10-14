@@ -172,13 +172,18 @@ def check_resume_manifest(out_path: Path, fingerprint: dict) -> None:
                 + "\n  Collect to a new --out, or delete the output to re-collect it."
             )
     elif out_path.exists():
+        # Stop at the first row carrying evidence: the file is read again below to
+        # build the resume index, and a 24 MB cache is not worth parsing twice.
         with out_path.open(encoding="utf-8-sig") as probe:
-            if any(json.loads(line).get("evidence") for line in probe if line.strip()):
-                print(
-                    "[collect] WARNING: this output predates configuration manifests, "
-                    "so the settings it was collected under cannot be verified. "
-                    "Resuming into it can mix generation budgets without saying so."
-                )
+            for line in probe:
+                if line.strip() and json.loads(line).get("evidence"):
+                    print(
+                        "[collect] WARNING: this output predates configuration "
+                        "manifests, so the settings it was collected under cannot be "
+                        "verified. Resuming into it can mix generation budgets "
+                        "without saying so."
+                    )
+                    break
     manifest_path.write_text(
         json.dumps({"fingerprint": fingerprint, "out": str(out_path)},
                    ensure_ascii=False, indent=2),
