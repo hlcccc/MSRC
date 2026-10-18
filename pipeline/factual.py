@@ -116,7 +116,7 @@ def collect(out):
                        '--out',str(output),'--provider',family,'--model-path',path,
                        '--device','cuda:0','--dtype','bfloat16',
                        '--max-new-tokens','128','--max-pixels','1003520',
-                       '--k','3','--seed',str(SEED),'--gpu-memory-fraction','0.45',
+                       '--k','3','--seed',str(SEED),
                        '--save-every','4']
             log = inside(out/'logs'/(family+'_'+dataset+'.log'))
             log.parent.mkdir(exist_ok=True)

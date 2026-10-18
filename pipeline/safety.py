@@ -141,7 +141,6 @@ def prepare(out):
 def configure_gpu():
     import torch
     torch.set_num_threads(2)
-    torch.cuda.set_per_process_memory_fraction(0.45, 0)
     torch.manual_seed(SEED)
     return torch
 
