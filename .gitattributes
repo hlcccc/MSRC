@@ -1,0 +1,4 @@
+# Shell entry points run on Linux. Without this rule a Windows checkout with
+# core.autocrlf=true writes CRLF into scripts/*.sh and bash fails with
+# "$'\r': command not found" before the first line of real work.
+*.sh text eol=lf

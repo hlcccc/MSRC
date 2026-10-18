@@ -62,6 +62,14 @@ secrets/
 # Datasets are downloaded, not vendored.
 /data/
 /datasets/
+# The acceptance pipeline keeps the same rule: assets (checkpoints, benchmark
+# rows, the delivered benign set) are prepared by scripts/02, never committed.
+/assets/
+
+# The path map is per machine. configs/paths.example.json is the template that
+# scripts/02 copies from; configs/paths.json names where this machine keeps its
+# weights and data, and committing it would bake one lab's layout into the repo.
+/configs/paths.json
 
 # Editor / OS
 .idea/
