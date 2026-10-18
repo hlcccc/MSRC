@@ -71,6 +71,10 @@ def build(run: Path, stage: str) -> dict:
              " ｜ 生成时间 %s</p>" % (html.escape(run.name), limits["label"], limits["signals"],
                                     limits["calibration"], limits["warning"],
                                     summary["generated"])]
+    smoke = 'SMOKE' in str((factual or {}).get('status', '')) or 'SMOKE' in str((safety or {}).get('status', ''))
+    if smoke:
+        parts.append("<p class=warn>本报告来自冒烟验证（少量样本），只用于检查流程能否跑通，"
+                     "<b>不作为指标达标结论</b>。正式验收须以 --mode full 重跑并生成新的运行编号。</p>")
 
     if factual:
         rows = factual_rows(factual)
@@ -99,7 +103,12 @@ def build(run: Path, stage: str) -> dict:
             accuracy=primary.get("accuracy"), n=primary.get("n"),
             threshold=safety.get("threshold"), passing=safety.get("passing"),
             status=safety.get("status"))
-        rows = [[k, str(primary.get(k, "—"))] for k in ("n", "TP", "TN", "FP", "FN", "accuracy")]
+        rows = [["测试样本数", primary.get("n", "—")],
+                ["正确预警 TP", primary.get("TP", "—")],
+                ["正确放行 TN", primary.get("TN", "—")],
+                ["误报 FP", primary.get("FP", "—")],
+                ["漏报 FN", primary.get("FN", "—")],
+                ["提前预警准确率", fmt(primary.get("accuracy"), percent=True)]]
         parts.append("<h2>指标2.3 高风险内容提前预警</h2>")
         parts.append("<p>判定阈值 %.4f（仅在训练集上选取并冻结），测试集 %s 条。</p>"
                      % (safety.get("threshold", float("nan")), primary.get("n", "—")))
@@ -129,7 +138,8 @@ def build(run: Path, stage: str) -> dict:
     parts.append("<style>body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;margin:32px;line-height:1.6;color:#222}"
                  "table{border-collapse:collapse;margin:12px 0 24px}"
                  "th,td{border:1px solid #ccc;padding:6px 10px;font-size:14px}th{background:#f2f4f8}"
-                 ".meta{color:#555}.note{color:#555;font-size:13px}code{background:#f4f4f4;padding:1px 4px}</style>")
+                 ".meta{color:#555}.note{color:#555;font-size:13px}code{background:#f4f4f4;padding:1px 4px}"
+                 ".warn{background:#fff3cd;border:1px solid #e0c060;padding:8px 12px}</style>")
 
     report_dir = inside(run / "report")
     report_dir.mkdir(parents=True, exist_ok=True)
