@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from pipeline.common import inside, load_config, runs_dir, save, sha
+from pipeline.acceptance_check import check
 
 STAGES = {
     "milestone": dict(signals=3, calibration=10.0, warning=75.0, label="2026年11月里程碑"),
@@ -33,10 +34,10 @@ def factual_rows(report: dict) -> list[dict]:
         model, _, dataset = cell["cell"].partition("_")
         rows.append(dict(model=MODEL_TITLES.get(model, model),
                          dataset=DATASET_TITLES.get(dataset, dataset),
-                         n=cell["n"], n_dev=cell["n_dev"], n_test=cell["n_test"],
-                         ece_before=cell["ece_before"], ece_after=cell["ece_after"],
-                         gain=cell["relative_improvement"],
-                         signals=cell["minimum_actual_signals_per_test_sample"],
+                         n=cell.get("n"), n_dev=cell.get("n_dev"), n_test=cell.get("n_test"),
+                         ece_before=cell.get("ece_before"), ece_after=cell.get("ece_after"),
+                         gain=cell.get("relative_improvement"),
+                         signals=cell.get("minimum_actual_signals_per_test_sample"),
                          auroc_before=cell.get("auroc_before"),
                          auroc_after=cell.get("auroc_after")))
     return rows
@@ -75,17 +76,24 @@ def build(run: Path, stage: str) -> dict:
     if smoke:
         parts.append("<p class=warn>本报告来自冒烟验证（少量样本），只用于检查流程能否跑通，"
                      "<b>不作为指标达标结论</b>。正式验收须以 --mode full 重跑并生成新的运行编号。</p>")
+    reasons = check(run, factual, safety)
+    summary['complete'] = not reasons
+    summary['incomplete_reasons'] = reasons
+    if reasons:
+        parts.append('<p class=warn><b>测试未完整完成，不作达标结论。</b></p><ul>%s</ul>' %
+                     ''.join('<li>%s</li>' % html.escape(r) for r in reasons))
 
     if factual:
         rows = factual_rows(factual)
         passing = [r for r in rows
                    if r["gain"] is not None and r["gain"] * 100 >= limits["calibration"]
-                   and r["signals"] >= limits["signals"]]
+                   and r["signals"] is not None and r["signals"] >= limits["signals"]]
         summary["signals"]["factual"] = dict(
             cells=len(rows), passing=len(passing),
             min_gain=min((r["gain"] for r in rows if r["gain"] is not None), default=None),
-            min_signals=min((r["signals"] for r in rows), default=None),
-            status=factual.get("status"), acceptance_conclusion=factual.get("acceptance_conclusion"))
+            min_signals=min((r["signals"] for r in rows if r['signals'] is not None), default=None),
+            status=factual.get("status"),
+            acceptance_conclusion=len(passing) == 6 if not reasons else None)
         table = [[r["model"], r["dataset"], r["n_dev"], r["n_test"], fmt(r["ece_before"]),
                   fmt(r["ece_after"]), fmt(r["gain"], percent=True), r["signals"],
                   fmt(r["auroc_before"], 3), fmt(r["auroc_after"], 3)] for r in rows]
@@ -101,18 +109,24 @@ def build(run: Path, stage: str) -> dict:
         primary = safety.get("primary", {})
         summary["signals"]["safety"] = dict(
             accuracy=primary.get("accuracy"), n=primary.get("n"),
-            threshold=safety.get("threshold"), passing=safety.get("passing"),
+            threshold=safety.get("threshold"),
+            passing=primary.get('accuracy', 0) * 100 >= limits['warning'] if not reasons else None,
             status=safety.get("status"))
         rows = [["测试样本数", primary.get("n", "—")],
                 ["正确预警 TP", primary.get("TP", "—")],
                 ["正确放行 TN", primary.get("TN", "—")],
                 ["误报 FP", primary.get("FP", "—")],
                 ["漏报 FN", primary.get("FN", "—")],
-                ["提前预警准确率", fmt(primary.get("accuracy"), percent=True)]]
+                ["提前预警准确率", fmt(primary.get("accuracy"), percent=True)],
+                ["全告警基线", fmt(primary.get("all_alarm"), percent=True)],
+                ["完成门控输出的测试样本", safety.get('delivered', '—')],
+                ["预警与输出时间顺序", str(safety.get('valid_timestamp_order'))]]
         parts.append("<h2>指标2.3 高风险内容提前预警</h2>")
         parts.append("<p>判定阈值 %.4f（仅在训练集上选取并冻结），测试集 %s 条。</p>"
                      % (safety.get("threshold", float("nan")), primary.get("n", "—")))
         parts.append(html_table(["统计量", "取值"], rows))
+        parts.append('<p>时序核验范围为受控本地输出流程，不代表已验证线上HTTP或流式服务。'
+                     '答案核验分布（仅作补充）：%s。</p>' % html.escape(str(safety.get('judge_counts', {}))))
         by_source = safety.get("by_source") or {}
         if by_source:
             parts.append(html_table(["来源", "样本数", "准确率"],
@@ -132,6 +146,13 @@ def build(run: Path, stage: str) -> dict:
         verdicts.append(("指标2.3 预警准确率", fmt(primary.get("accuracy"), percent=True),
                          "≥ %.0f%%" % limits["warning"]))
     parts.append(html_table(["指标", "本次结果", "考核要求"], [[a, str(b), c] for a, b, c in verdicts]))
+    passed = (summary['signals'].get('factual', {}).get('acceptance_conclusion') is True
+              and summary['signals'].get('safety', {}).get('passing') is True)
+    summary['acceptance_pass'] = passed if summary['complete'] else None
+    summary['verdict'] = ('PASS' if passed else 'FAIL') if summary['complete'] else 'INCOMPLETE'
+    parts.append('<p><b>判定：%s</b></p>' %
+                 {'PASS': '完整测试，全部指标达到本次考核线', 'FAIL': '完整测试，存在未达到考核线的指标',
+                  'INCOMPLETE': '测试不完整，不能作达标结论'}[summary['verdict']])
     parts.append("<p class=note>口径说明：指标2.2 的方法前基线为主答案平均 token 概率换算的风险分（未经"
                  "任何校准），方法后为融合校准输出的风险概率；两者在同一测试样本、同一 15 个等宽箱上计算"
                  " ECE。指标2.3 以数据集输入标签为准，答案核验模型的判定只作补充记录。</p>")
@@ -162,8 +183,14 @@ def main() -> int:
     summary = build(run, args.stage)
     print(json.dumps(summary["signals"], indent=2, ensure_ascii=False))
     print("REPORT_WRITTEN %s" % (run / summary["report_html"]))
+    if not summary['complete']:
+        print('RUN_INCOMPLETE %s' % args.run_id)
+        for reason in summary['incomplete_reasons']:
+            print('  ' + reason)
+        return 2
     print("RUN_COMPLETED %s" % args.run_id)
-    return 0
+    print('ACCEPTANCE_%s %s' % (summary['verdict'], args.run_id))
+    return 0 if summary['acceptance_pass'] else 1
 
 
 if __name__ == "__main__":

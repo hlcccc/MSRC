@@ -159,15 +159,11 @@ def _cmd_demo(_args) -> int:
 
 def _split(rows, dev_fraction: float, seed: int):
     """Split by group (image), so near-duplicates cannot straddle the boundary."""
-    import numpy as np
+    from evaluation.groups import image_group_id
+    from evaluation.split import grouped_split
 
-    groups = np.asarray([str(r.get("image", r.get("id", ""))) for r in rows])
-    unique = np.unique(groups)
-    np.random.default_rng(seed).shuffle(unique)
-    cut = int(len(unique) * dev_fraction)
-    dev_groups = set(unique[:cut])
-    dev_mask = np.asarray([g in dev_groups for g in groups])
-    return dev_mask, ~dev_mask
+    return grouped_split([image_group_id(row) for row in rows],
+                         dev_fraction=dev_fraction, seed=seed)
 
 
 def _matrix(rows):

@@ -14,6 +14,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$RUN_ID" ] || die "--run-id is required, e.g. --run-id thirdparty_001"
+validate_run_id "$RUN_ID"
 
 require_python
 RUN_DIR="$("$PYTHON_BIN" -c 'from pipeline.common import runs_dir; print(runs_dir())')/$RUN_ID"

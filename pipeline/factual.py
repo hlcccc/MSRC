@@ -29,7 +29,7 @@ def _source_files():
     the official TextVQA scorer. Hashing the whole tree would also cover this file."""
     files = list((SOURCE / 'msrc').rglob('*.py')) + list((SOURCE / 'evaluation').rglob('*.py'))
     files += [SOURCE / 'scripts' / 'collect_evidence.py',
-              SOURCE / 'references' / 'm4c_evaluator.py']
+              SOURCE / 'references' / 'm4c_evaluator.py', SOURCE / 'pipeline' / 'common.py']
     return sorted(set(files))
 
 
@@ -59,6 +59,7 @@ def prepare(out, mode):
     from evaluation.groups import image_group_id
     from evaluation.split import grouped_split
     protocol = dict(seed=SEED, mode=mode, max_new_tokens=128, k=3,
+                    dtype='bfloat16',
                     views=4, probes=3, resample_temperature=.7, top_p=.9,
                     max_pixels=1003520, attention=False, image_contrast=False,
                     selected_signals=SIGNALS, models=MODELS, donors=DONORS,
@@ -105,8 +106,10 @@ def prepare(out, mode):
 
 
 def collect(out):
+    from pipeline.preflight import wait_for_gpu
     for family,path in MODELS.items():
         for dataset in ('pope','textvqa'):
+            wait_for_gpu()
             output = inside(out/'evidence'/(family+'_'+dataset+'.jsonl'))
             output.parent.mkdir(exist_ok=True)
             if output.exists():
@@ -137,7 +140,7 @@ def evaluate(out):
     mmf = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mmf)
     official = mmf.TextVQAAccuracyEvaluator()
-    protocol = json.loads((out/'protocol.json').read_text())
+    protocol = json.loads((out/'protocol.json').read_text(encoding='utf-8'))
     results = []
     for family in MODELS:
         for dataset in ('pope','textvqa'):
@@ -266,7 +269,7 @@ def main():
         out.mkdir(parents=True,exist_ok=False)
         prepare(out,args.mode)
     else:
-        protocol=json.loads((out/'protocol.json').read_text())
+        protocol=json.loads((out/'protocol.json').read_text(encoding='utf-8'))
         if protocol['mode']!=args.mode or protocol['script_sha256']!=sha(__file__):
             raise ValueError('frozen run protocol mismatch')
         for name,digest in protocol['source_hashes'].items():

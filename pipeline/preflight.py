@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from pipeline.common import (ROOT, inside, initialize, load_config, model_paths,
-                             data_paths, sha, save)
+                             data_paths, sha, save, read_rows)
 
 FACTUAL_COUNTS = {"pope.jsonl": 9000, "textvqa.jsonl": 5000}
 SAFETY_FILES = ["mmsafety_all.jsonl", "mmsafety_sd.jsonl", "benign_native.jsonl",
@@ -45,7 +47,7 @@ def check_models() -> dict:
             raise SystemExit("model %s has no config.json at %s" % (name, path))
         index = path / "model.safetensors.index.json"
         if index.is_file():
-            shards = sorted(set(json.loads(index.read_text())["weight_map"].values()))
+            shards = sorted(set(json.loads(index.read_text(encoding='utf-8'))["weight_map"].values()))
         else:
             shards = sorted(p.name for p in path.glob("*") if p.suffix in WEIGHT_SUFFIXES)
         if not shards:
@@ -68,16 +70,22 @@ def check_data() -> dict:
         path = Path(data["factual"]) / filename
         if not path.is_file():
             raise SystemExit("missing raw input: %s" % path)
-        rows = sum(1 for line in path.open(encoding="utf-8-sig") if line.strip())
-        if rows != expected:
-            raise SystemExit("%s has %d rows, expected %d" % (filename, rows, expected))
-        found[filename] = dict(rows=rows, sha256=sha(path))
+        rows = read_rows(path)
+        if len(rows) != expected:
+            raise SystemExit("%s has %d rows, expected %d" % (filename, len(rows), expected))
+        _check_inputs(rows, path)
+        found[filename] = dict(rows=len(rows), sha256=sha(path))
     for filename in SAFETY_FILES:
         path = Path(data["safety"]) / filename
         if not path.is_file():
             raise SystemExit("missing raw input: %s" % path)
-        rows = sum(1 for line in path.open(encoding="utf-8-sig") if line.strip())
-        found[filename] = dict(rows=rows, sha256=sha(path))
+        rows = read_rows(path)
+        expected = {"mmsafety_all.jsonl": 1680, "mmsafety_sd.jsonl": 3360,
+                    "benign_native.jsonl": 1680, "matched_benign.jsonl": 1680}[filename]
+        if len(rows) != expected:
+            raise SystemExit("%s has %d rows, expected %d" % (filename, len(rows), expected))
+        _check_inputs(rows, path)
+        found[filename] = dict(rows=len(rows), sha256=sha(path))
     bench = Path(data["mmsafety"])
     if not bench.is_dir():
         raise SystemExit("missing MM-SafetyBench parquet tree: %s" % bench)
@@ -85,11 +93,25 @@ def check_data() -> dict:
     return found
 
 
-def check_gpu() -> list[dict]:
+def _check_inputs(rows, path):
+    if len({r['id'] for r in rows}) != len(rows):
+        raise SystemExit("duplicate input IDs: %s" % path)
+    for row in rows:
+        if row.get('answer') or row.get('evidence'):
+            raise SystemExit("old answers/evidence are not raw input: %s" % path)
+        if not Path(row['image']).is_file():
+            raise SystemExit("missing input image: %s" % row['image'])
+
+
+class GPUInUse(SystemExit):
+    pass
+
+
+def check_gpu(ignore_current_process=False) -> list[dict]:
     if shutil.which("nvidia-smi") is None:
         raise SystemExit("nvidia-smi not found: this pipeline needs an NVIDIA GPU")
     cfg = load_config()
-    index = str(cfg.get("gpu", "0"))
+    index = str(os.environ.get("MSRC_GPU") or cfg.get("gpu", "0"))
     listed = subprocess.check_output(
         ["nvidia-smi", "--query-gpu=index,uuid,memory.total,memory.used",
          "--format=csv,noheader,nounits"], text=True)
@@ -111,23 +133,49 @@ def check_gpu() -> list[dict]:
             continue
         uuid, pid, mem = [part.strip() for part in line.split(",")]
         if uuid == target["uuid"]:
+            if ignore_current_process and int(pid) == os.getpid():
+                continue
             owner = subprocess.run(["ps", "-o", "user=", "-p", pid], text=True,
                                    capture_output=True).stdout.strip()
             busy.append(dict(pid=pid, owner=owner or "?", mib=mem))
     if busy:
-        raise SystemExit("GPU %s is already in use (%s); choose another card with --gpus "
+        raise GPUInUse("GPU %s is already in use (%s); choose another card with --gpus "
                          "or wait. This script never stops another user's job."
                          % (index, ", ".join("%s pid %s" % (b["owner"], b["pid"]) for b in busy)))
     return [target]
 
 
+def wait_for_gpu() -> list[dict]:
+    while True:
+        try:
+            return check_gpu(ignore_current_process=True)
+        except GPUInUse as exc:
+            print('GPU_WAIT: %s; checking again in 120s' % exc, flush=True)
+            time.sleep(120)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, help="run directory; environment.json is written there")
+    ap.add_argument('--wait-for-gpu', action='store_true')
     args = ap.parse_args()
     initialize()
+    cfg = load_config()
+    if cfg.get('model_inventory'):
+        from pipeline.prepare_assets import verify_model_inventory
+        inventory = Path(cfg['model_inventory'])
+        verify_model_inventory(inventory.parent)
+        locked = json.loads(inventory.read_text(encoding='utf-8'))['models']
+        if any(Path(path).resolve() != Path(locked[name]['path']).resolve()
+               for name, path in model_paths().items()):
+            raise ValueError('configured model path differs from frozen inventory')
     report = dict(project=str(ROOT), python=sys.version, packages=check_packages(),
-                  models=check_models(), data=check_data(), gpu=check_gpu())
+                  models=check_models(), data=check_data(),
+                  gpu=wait_for_gpu() if args.wait_for_gpu else check_gpu())
+    report['dependency_freeze'] = subprocess.check_output(
+        [sys.executable, '-m', 'pip', 'freeze'], text=True).splitlines()
+    if cfg.get('model_inventory'):
+        report['model_inventory_sha256'] = sha(cfg['model_inventory'])
     if args.out:
         save(inside(args.out) / "environment.json", report)
     print(json.dumps({k: report[k] for k in ("packages", "gpu")}, indent=2, ensure_ascii=False))

@@ -16,11 +16,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$RUN_ID" ] || die "--run-id is required, e.g. --run-id thirdparty_001"
+validate_run_id "$RUN_ID"
 case "$RUN_MODE" in full|smoke) ;; *) die "--mode must be full or smoke" ;; esac
 
 require_python
 export MSRC_GPU="${GPU:-0}"
-RUN_DIR="$("$PYTHON_BIN" -c 'from pipeline.common import runs_dir; print(runs_dir())')/$RUN_ID"
+RUN_DIR="$("$PYTHON_BIN" -c 'import sys; from pipeline.common import inside, runs_dir; print(inside(runs_dir()/sys.argv[1]))' "$RUN_ID")"
 OUT="$RUN_DIR/safety"
 
 log "run id       : $RUN_ID"
@@ -37,6 +38,7 @@ fi
 
 [ -e "$OUT" ] && die "fresh output required: $OUT already exists"
 mkdir -p "$RUN_DIR"
+"$PYTHON_BIN" -m pipeline.preflight --out "$RUN_DIR/safety_preflight" --wait-for-gpu
 if [ "$RUN_MODE" = "smoke" ]; then
   "$PYTHON_BIN" -m pipeline.safety --out "$OUT" --phase run --delivery-limit 16
 else

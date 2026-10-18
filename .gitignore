@@ -58,6 +58,7 @@ htmlcov/
 secrets/
 *.local.yaml
 *.local.yml
+*.local.json
 
 # Datasets are downloaded, not vendored.
 /data/

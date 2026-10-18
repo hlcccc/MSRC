@@ -11,6 +11,7 @@ import json
 import platform
 import subprocess
 import sys
+from pathlib import Path
 
 REQUIRED = ["numpy", "torch", "transformers", "accelerate", "pillow", "tqdm"]
 OPTIONAL = ["pandas", "pyarrow", "rapidocr-onnxruntime", "torchvision", "sentencepiece", "timm"]
@@ -65,10 +66,17 @@ def main() -> int:
     if not any("error" not in row for row in info["gpu"]):
         print("ENV_INCOMPLETE: nvidia-smi reported no usable GPU")
         return 2
-    drift = {name: (info["packages"][name], want) for name, want in REFERENCE.items()
-             if info["packages"][name] and info["packages"][name].split("+")[0] != want.split("+")[0]
-             and info["packages"][name] != want}
-    print("ENV_OK" + ("" if not drift else " (version drift: %s)" % json.dumps(drift, ensure_ascii=False)))
+    pins = {}
+    for line in (Path(__file__).resolve().parents[1] / 'requirements-acceptance.txt').read_text(encoding='utf-8').splitlines():
+        if '==' in line and not line.lstrip().startswith('#'):
+            name, expected = line.strip().split('==')
+            actual = version(name)
+            if actual is None or actual.split('+')[0] != expected:
+                pins[name] = dict(expected=expected, actual=actual)
+    if pins:
+        print('ENV_INCOMPLETE: pinned dependency mismatch ' + json.dumps(pins))
+        return 2
+    print("ENV_OK")
     return 0
 
 

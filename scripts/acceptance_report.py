@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""课题二 指标 2.1—2.3 验收报告：一条命令跑完全流程。
+"""历史证据缓存的报告工具，不是从原始数据到新推理的全流程验收入口。
 
-第三方测评方只需这一条命令即可复现全部结论，不需要 GPU——所有数字都来自
-已采集的证据缓存，同一份缓存跑两次得到同一份报告：
+本脚本不需要GPU，因为只读取已采集的证据缓存；不能证明重新处理数据、
+重新生成回答及生成前门控已经完成。完整验收采用docs/ACCEPTANCE_FLOW.md中的
+五步流程，以scripts/05_score_report.sh核验本轮产物并区分完整与达标。
+以下命令仅用于历史缓存分析，不替代本轮验收，也不混用两种基线及考核口径：
 
     python scripts/acceptance_report.py --manifest runs/cells.json --out report.md
 

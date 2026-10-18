@@ -52,9 +52,8 @@ jobs:
 
       # The README states the signal inventory. This asserts it against the code
       # rather than against the prose, so the two cannot drift apart -- including
-      # the distinction between what the layer *defines* and what *runs*: one of
-      # the eight needs a second model, which is a deployment cost worth being
-      # explicit about.
+      # the distinction between the full registry and the eight candidates fixed
+      # by the acceptance protocol. Two registry signals need a second model.
       - name: The declared signal inventory holds
         run: |
           python - <<'PY'
@@ -64,15 +63,18 @@ jobs:
 
           external = [s.name for s in ALL_SIGNALS if s.kind == "external"]
           internal = [s.name for s in ALL_SIGNALS if s.kind == "internal"]
-          assert len(external) == 5, external
-          assert len(internal) == 3, internal
-          assert len(ALL_SIGNALS) == 8, [s.name for s in ALL_SIGNALS]
+          assert len(external) == 7, external
+          assert len(internal) == 5, internal
+          assert len(ALL_SIGNALS) == 12, [s.name for s in ALL_SIGNALS]
 
-          # one of the eight is bought by a second model, and only one
-          single = [s.name for s in ALL_SIGNALS if s.name != "cross_model_agreement"]
-          assert len(single) == 7, single
+          donor_signals = {"cross_model_agreement", "cross_model_object_support"}
+          single = [s.name for s in ALL_SIGNALS if s.name not in donor_signals]
+          assert len(single) == 10, single
 
-          print("ok: 8 defined; 5 external, 3 internal; 7 run with one model")
+          from pipeline.factual import SIGNALS
+          assert len(SIGNALS) == len(set(SIGNALS)) == 8, SIGNALS
+          assert set(SIGNALS) <= {s.name for s in ALL_SIGNALS}, SIGNALS
+          print("ok: 12 registered; 7 external, 5 internal; 8 acceptance candidates")
           PY
 
   # The decision layer must stay importable with NumPy alone: no torch, no

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "msrc"
 version = "0.1.0"
-description = "Multi-signal risk calibration for multimodal generation: factual-hallucination risk from internal and external model signals. Content-safety risk is a separate question, modelled outside this repository."
+description = "Multi-signal factual-risk calibration for multimodal generation, with a separate pre-generation safety acceptance pipeline."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"

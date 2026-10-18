@@ -91,8 +91,13 @@ def save(path, value) -> None:
 
 
 def read_rows(path) -> list[dict]:
-    with Path(path).open(encoding="utf-8-sig") as f:
-        return [json.loads(line) for line in f if line.strip()]
+    path = Path(path)
+    with path.open(encoding="utf-8-sig") as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    for row in rows:
+        if row.get("image") and not Path(row["image"]).is_absolute():
+            row["image"] = str((path.parent / row["image"]).resolve())
+    return rows
 
 
 def emit(handle, row) -> None:
@@ -105,8 +110,11 @@ def initialize(base: Path | None = None) -> None:
     base = inside(base or ROOT)
     for key, sub in (("TMPDIR", "tmp"), ("HF_HOME", "cache/hf"), ("HF_HUB_CACHE", "cache/hf/hub"),
                      ("TORCH_HOME", "cache/torch"), ("XDG_CACHE_HOME", "cache"),
-                     ("PIP_CACHE_DIR", "cache/pip"), ("TRANSFORMERS_CACHE", "cache/hf")):
-        path = base / sub
+                     ("PIP_CACHE_DIR", "cache/pip"), ("TRANSFORMERS_CACHE", "cache/hf"),
+                     ("HF_DATASETS_CACHE", "cache/hf/datasets"), ("CUDA_CACHE_PATH", "cache/cuda"),
+                     ("TRITON_CACHE_DIR", "cache/triton"), ("NUMBA_CACHE_DIR", "cache/numba"),
+                     ("MPLCONFIGDIR", "cache/matplotlib")):
+        path = inside(base / sub)
         path.mkdir(parents=True, exist_ok=True)
         os.environ[key] = str(path)
     for key in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",

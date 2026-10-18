@@ -8,7 +8,7 @@ set_mode "$@"
 
 BASE_PY="${MSRC_BASE_PYTHON:-python3.10}"
 VENV="$ROOT/.venv"
-REQ="$ROOT/requirements-acceptance.txt"
+REQ="${MSRC_REQUIREMENTS:-$ROOT/requirements-acceptance.txt}"
 INDEX="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 
 log "project      : $ROOT"
@@ -19,6 +19,7 @@ log "pypi index   : $INDEX"
 log "mode         : $MODE"
 
 have "$BASE_PY" || die "$BASE_PY not found; set MSRC_BASE_PYTHON to a CPython 3.10 interpreter"
+case "$(realpath -m "$VENV")" in "$ROOT"/*) ;; *) die "venv leaves project: $VENV" ;; esac
 
 if [ "$MODE" = "check" ]; then
   log "inspecting the existing environment without installing anything"

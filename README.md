@@ -1,6 +1,6 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Twelve independent signals, seven external and five internal, mapped to a
+**Twelve candidate signals, seven external and five internal, mapped to a
 calibrated hallucination-risk score from a single input.**
 
 MSRC scores a *frozen* model's answer after the fact. It does not retrain or
@@ -24,8 +24,9 @@ use more than the model's text, which is the point:
 
 The risk is factual: **does the answer contradict the image?** Content-safety risk
 — does the answer violate a stated policy — is a different question with a
-different label and different evidence. It used to share this decision layer and it
-no longer does; it is modelled outside this repository.
+different label and different evidence. It does not share this factual decision
+layer: the acceptance pipeline uses a separate safety guard, development-only
+threshold selection and pre-generation output gate.
 
 ### Where the borrowed names overstate what is implemented
 
@@ -39,14 +40,17 @@ difference is stated here rather than left to be discovered in the code:
   scores `a car` against `no car` at 0.9. Kuhn et al. (ICLR 2023) cluster by
   bidirectional entailment; this does not, so it must not be described as a faithful
   implementation of that method.
-* **Missing readings enter the feature vector as `risk = 0.0`.** The value is
+* **The legacy decision-layer default fills missing readings with `risk = 0.0`.** The value is
   recorded as unavailable and named in the fit warnings, but the number that reaches
   the calibrator is 0.0 — a *low-risk* value. On a column that is unavailable for
   every item the column is constant and the L2 penalty drives its weight to zero,
   which is harmless. On a column that is available for a minority of items it is
   not: "could not be read" is then encoded as "no risk", and the model can learn
   that absence of evidence is evidence of safety. See
-  `docs/signal-applicability.md` for the per-cell counts.
+  `docs/signal-applicability.md` for the per-cell counts. The fixed acceptance
+  pipeline instead fills from available development-set readings, removes
+  development-constant columns, and records availability separately; it does not
+  count imputed readings as signals actually used on a test sample.
 
 ### How many of them actually run
 
@@ -77,9 +81,11 @@ one wrong object in an otherwise correct caption needs.
 
 The five internal readings (`sequence_confidence`, `output_entropy`, `decision_margin`,
 `image_reliance`, `visual_attention`) are kept deliberately: "is the model unsure" is
-evidence about whether an answer is grounded, and unlike a consistency reading it needs
-no extra generations — only that the platform recorded the internals of the call that
-produced the answer.
+evidence about whether an answer is grounded. Token confidence, entropy, margin
+and visual attention require internals recorded during the original generation;
+`image_reliance` additionally requires a masked-image forward pass. The fixed
+eight-signal acceptance protocol does not select `image_reliance` or
+`visual_attention`.
 
 For any of these configurations, the signals that cannot run say so by name in the
 result.
@@ -95,7 +101,7 @@ looks healthy and encodes nothing, which is the failure mode this framework was
 built to make impossible.
 
 **Internal signals need to be captured, not recovered.** A serving stack that
-returns text only is supported: the three internal signals report themselves
+returns text only is supported: the five internal signals report themselves
 unavailable and the other five carry on. But if the platform *can* expose token
 logprobs, it must record them **when it generates the answer being evaluated** —
 re-running the model afterwards produces a different generation, and its
@@ -121,6 +127,25 @@ pip install -e ".[service]"      # the HTTP service
 > `pyarrow` is listed rather than assumed. pandas reads parquet only through an
 > engine it does not install, and without one the failure surfaces deep inside
 > pandas as a message about pyarrow that never mentions what was being done.
+
+## Acceptance Reproduction
+
+For project acceptance, use the [five-step acceptance flow](docs/ACCEPTANCE_FLOW.md),
+not the small examples below. It rebuilds inputs from raw POPE/TextVQA and
+MM-SafetyBench assets, collects new model evidence, fits only on development
+groups, then validates complete artifacts before judging the metric targets.
+
+The acceptance protocol fixes **eight candidates out of the twelve registered
+signals**. Counts of signals actually participating in fusion are checked per
+test sample. Missing artifacts or smoke runs produce `INCOMPLETE`, not a pass;
+`RUN_COMPLETED` alone does not mean `ACCEPTANCE_PASS`.
+
+Public models and benchmarks are not the whole delivery: the custom 1,680 benign
+samples and frozen non-weight model metadata must also be supplied. Pin the code,
+model inventory, environment and raw assets before collection; do not update a
+running frozen experiment. CPU regression tests verify behavior, not the
+performance of an unfinished GPU benchmark. See the flow document for the
+separate factual/safety labels and the read-only auxiliary-answer boundary.
 
 ## Commands
 

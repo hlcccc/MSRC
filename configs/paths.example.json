@@ -5,7 +5,7 @@
     "llava":    { "path": "assets/models/llava",    "repo": "llava-hf/llava-1.5-13b-hf" },
     "qwen":     { "path": "assets/models/qwen",     "repo": "Qwen/Qwen2.5-VL-7B-Instruct" },
     "internvl": { "path": "assets/models/internvl", "repo": "OpenGVLab/InternVL3-8B-hf" },
-    "guard":    { "path": "assets/models/guard",    "repo": "yingwenhao/SingGuard-4b" },
+    "guard":    { "path": "assets/models/guard",    "repo": "inclusionAI/SingGuard-4b" },
     "generator":{ "path": "assets/models/qwen",     "repo": "Qwen/Qwen2.5-VL-7B-Instruct" },
     "judge":    { "path": "assets/models/judge",    "repo": "Qwen/Qwen3Guard-Gen-8B" }
   },

@@ -27,6 +27,26 @@ set_mode() {
       --check)         MODE="check" ;;
     esac
   done
+  if [ "$MODE" != "plan" ]; then
+    for sub in tmp cache cache/pip cache/hf cache/hf/hub cache/torch; do
+      dest="$(realpath -m "$ROOT/$sub")"
+      case "$dest" in "$ROOT"/*) ;; *) die "cache path leaves project: $dest" ;; esac
+      mkdir -p "$dest"
+    done
+    export TMPDIR="$ROOT/tmp" PIP_CACHE_DIR="$ROOT/cache/pip"
+    export HF_HOME="$ROOT/cache/hf" HF_HUB_CACHE="$ROOT/cache/hf/hub"
+    export TORCH_HOME="$ROOT/cache/torch" XDG_CACHE_HOME="$ROOT/cache"
+    export HF_DATASETS_CACHE="$ROOT/cache/hf/datasets" CUDA_CACHE_PATH="$ROOT/cache/cuda"
+    export TRITON_CACHE_DIR="$ROOT/cache/triton" NUMBA_CACHE_DIR="$ROOT/cache/numba"
+    export MPLCONFIGDIR="$ROOT/cache/matplotlib"
+    export PYTHONDONTWRITEBYTECODE=1 TOKENIZERS_PARALLELISM=false
+    export OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2
+    export ARROW_NUM_THREADS=2 NUMEXPR_NUM_THREADS=2
+  fi
+}
+
+validate_run_id() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid run ID: $1"
 }
 
 run() {

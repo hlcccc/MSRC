@@ -31,11 +31,6 @@ def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8')
 
 
-def read_rows(path):
-    with Path(path).open(encoding='utf-8-sig') as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
 def emit(f, row):
     f.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + '\n')
     f.flush()
@@ -139,6 +134,8 @@ def prepare(out):
 
 
 def configure_gpu():
+    from pipeline.preflight import wait_for_gpu
+    wait_for_gpu()
     import torch
     torch.set_num_threads(2)
     torch.manual_seed(SEED)
@@ -152,7 +149,7 @@ def score(out, rows):
     proc = AutoProcessor.from_pretrained(MODELS['guard'], local_files_only=True)
     tok = proc.tokenizer
     if not tok.chat_template:
-        tok.chat_template = Path(MODELS['guard'], 'chat_template.jinja').read_text()
+        tok.chat_template = Path(MODELS['guard'], 'chat_template.jinja').read_text(encoding='utf-8')
     model = AutoModelForImageTextToText.from_pretrained(
         MODELS['guard'], dtype=torch.bfloat16, device_map='cuda:0',
         local_files_only=True, attn_implementation='sdpa').eval()
@@ -198,9 +195,14 @@ def metrics(rows, threshold):
 
 def evaluate(out, rows):
     import numpy as np
-    fresh = {r['id']: r for r in read_rows(out / 'fresh_scores.jsonl')}
+    score_rows = read_rows(out / 'fresh_scores.jsonl')
+    fresh = {r['id']: r for r in score_rows}
+    if len(fresh) != len(score_rows) or len({r['id'] for r in rows}) != len(rows):
+        raise ValueError('duplicate input or score ID')
     if set(fresh) != {r['id'] for r in rows}:
         raise ValueError('fresh inference incomplete')
+    if not all(np.isfinite(r['p_harm']) and 0 <= r['p_harm'] <= 1 for r in score_rows):
+        raise ValueError('invalid fresh risk score')
     joined = [dict(r, **{k:v for k,v in fresh[r['id']].items() if k != 'id'}) for r in rows]
     dev = [r for r in joined if r['split'] == 'dev']
     test = [r for r in joined if r['split'] == 'test']
@@ -214,6 +216,8 @@ def evaluate(out, rows):
     state = dict(threshold=threshold, selected_on='dev only', n_dev=len(dev),
                  dev_correct=int(correct.max()), tie_rule='lowest',
                  protocol_sha256=sha(out / 'protocol.json'), frozen_ns=time.time_ns())
+    if (out / 'operating_point.json').exists():
+        raise ValueError('operating point already frozen; do not overwrite a tested run')
     save(out / 'operating_point.json', state)
     report = dict(status='FRESH_INFERENCE_COMPLETE_DELIVERY_PENDING',
                   n_inferred=len(joined), n_dev=len(dev), n_test=len(test),
@@ -299,7 +303,7 @@ def judge(out, rows):
                          raw=raw, judge_input='question and delivered answer, not image'))
             if (i+1)%200 == 0:
                 print('ANSWER_AUDIT %d/%d' % (i+1,len(delivered)), flush=True)
-    report = json.loads((out / 'report.json').read_text())
+    report = json.loads((out / 'report.json').read_text(encoding='utf-8'))
     all_test = len(delivered) == report['n_test']
     verdicts = Counter(r['verdict'] for r in read_rows(out / 'answer_judgements.jsonl'))
     report.update(status='FULL_SAFETY_FLOW_COMPLETE' if all_test else 'SMOKE_ONLY_NOT_FULL_ACCEPTANCE',
@@ -324,7 +328,7 @@ def main():
         rows = prepare(out)
     else:
         rows = read_rows(out / 'inputs.jsonl')
-        protocol = json.loads((out/'protocol.json').read_text())
+        protocol = json.loads((out/'protocol.json').read_text(encoding='utf-8'))
         if protocol['inputs_sha256'] != sha(out/'inputs.jsonl') or protocol['script_sha256'] != sha(__file__):
             raise ValueError('protocol input or code changed')
     if args.phase in ('score','run'):

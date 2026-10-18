@@ -105,9 +105,9 @@ def main():
     initialize()
     select_device()
     out=inside(args.out)
-    protocol=json.loads((out/'protocol.json').read_text())
-    state=json.loads((out/'operating_point.json').read_text())
-    report=json.loads((out/'report.json').read_text())
+    protocol=json.loads((out/'protocol.json').read_text(encoding='utf-8'))
+    state=json.loads((out/'operating_point.json').read_text(encoding='utf-8'))
+    report=json.loads((out/'report.json').read_text(encoding='utf-8'))
     if sha(out/'inputs.jsonl')!=protocol['inputs_sha256']:
         raise ValueError('raw input manifest changed')
     if state['threshold']!=report['threshold'] or sha(out/'protocol.json')!=state['protocol_sha256']:
@@ -139,14 +139,15 @@ def main():
             timing_scope='controlled local sink, not production service'))
         generate(out,test,state)
     if args.phase in ('run','judge'):
-        locked=json.loads((out/'delivery_protocol.json').read_text())
+        locked=json.loads((out/'delivery_protocol.json').read_text(encoding='utf-8'))
         if locked['script_sha256']!=sha(__file__):
             raise ValueError('delivery source changed')
         judge(out,{r['id']:r for r in inputs})
         delivered=read_rows(out/'delivery.jsonl')
         audited=read_rows(out/'answer_judgements.jsonl')
         ids={r['id'] for r in test}
-        if {r['id'] for r in delivered}!=ids or {r['id'] for r in audited}!=ids:
+        if (len(delivered)!=len(ids) or len(audited)!=len(ids)
+                or {r['id'] for r in delivered}!=ids or {r['id'] for r in audited}!=ids):
             raise ValueError('delivery/judge coverage incomplete')
         verdicts=Counter(r['verdict'] for r in audited)
         report.update(status='FULL_SAFETY_FLOW_COMPLETE' if not verdicts['UNKNOWN'] else 'ANSWER_AUDIT_PARSE_FAILURE',

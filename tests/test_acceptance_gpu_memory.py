@@ -1,4 +1,4 @@
-"""Acceptance entry points do not impose an implicit GPU memory fraction."""
+"""Uncapped new runs still wait for an available GPU."""
 import ast
 import sys
 from pathlib import Path
@@ -16,10 +16,10 @@ def load_function(path, name, namespace):
     return namespace[name]
 
 
-def test_factual_collection_uses_uncapped_default(tmp_path, monkeypatch):
+def test_factual_collection_waits_before_uncapped_loads(tmp_path, monkeypatch):
     from pipeline import preflight
-    calls = []
-    monkeypatch.setattr(preflight, 'wait_for_gpu', lambda: None, raising=False)
+    calls, waits = [], []
+    monkeypatch.setattr(preflight, 'wait_for_gpu', lambda: waits.append(True))
 
     def run(command, **kwargs):
         calls.append(command)
@@ -31,20 +31,20 @@ def test_factual_collection_uses_uncapped_default(tmp_path, monkeypatch):
         'subprocess': SimpleNamespace(run=run, STDOUT=-2),
     })
     collect(tmp_path)
-    assert len(calls) == 2
+    assert len(calls) == len(waits) == 2
     for command in calls:
         assert '--gpu-memory-fraction' not in command
         assert command[command.index('--dtype') + 1] == 'bfloat16'
         assert command[command.index('--max-new-tokens') + 1] == '128'
 
 
-def test_safety_keeps_threads_and_seed_without_cap(monkeypatch):
+def test_safety_waits_and_keeps_threads_and_seed_without_cap(monkeypatch):
     from pipeline import preflight
     calls = []
-    monkeypatch.setattr(preflight, 'wait_for_gpu', lambda: None, raising=False)
+    monkeypatch.setattr(preflight, 'wait_for_gpu', lambda: calls.append(('preflight',)))
 
     def reject_cap(*args, **kwargs):
-        raise AssertionError('acceptance inference must not set a memory fraction')
+        raise AssertionError('new inference must not impose a fixed memory fraction')
 
     torch = SimpleNamespace(
         set_num_threads=lambda n: calls.append(('threads', n)),
@@ -54,4 +54,4 @@ def test_safety_keeps_threads_and_seed_without_cap(monkeypatch):
     monkeypatch.setitem(sys.modules, 'torch', torch)
     configure = load_function(ROOT / 'pipeline/safety.py', 'configure_gpu', {'SEED': 20260920})
     assert configure() is torch
-    assert calls == [('threads', 2), ('seed', 20260920)]
+    assert calls == [('preflight',), ('threads', 2), ('seed', 20260920)]
