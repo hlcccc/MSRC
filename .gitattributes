@@ -2,3 +2,8 @@
 # core.autocrlf=true writes CRLF into scripts/*.sh and bash fails with
 # "$'\r': command not found" before the first line of real work.
 *.sh text eol=lf
+
+# Preserve upstream byte-identical whitespace for the SHA256-pinned safety head.
+/references/plugguard/models.py text eol=lf -whitespace
+/pipeline/plugguard.py text eol=lf
+/pipeline/plugguard_report.py text eol=lf

@@ -42,6 +42,8 @@ def check_packages() -> dict:
 def check_models() -> dict:
     found = {}
     for name, path in model_paths().items():
+        if name == 'guard' and os.environ.get('MSRC_SAFETY_BACKEND') == 'plugguard':
+            continue
         path = Path(path)
         if not (path / "config.json").is_file():
             raise SystemExit("model %s has no config.json at %s" % (name, path))

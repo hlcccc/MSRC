@@ -1,0 +1,43 @@
+{
+  "generator": {
+    "repo": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "revision": "cc594898137f460bfe9f0759e9844b3ce807cfb5",
+    "files": {
+      "README.md": "1fa65dbb08bc9ffe0b020409c8686f08b23008c5a68554353305fd2de6f2b81e",
+      "chat_template.json": "ad60d90252ed0b0705ba14e2d0ad0fec0beac1ea955642b54059b36052d8bc96",
+      "config.json": "77d9ec7321cc572e3579e2c84799c9cadaded63c49ce93b101733349fc330c43",
+      "configuration.json": "4d48781a5e83989d77ec96075741c402903a81ceffbb6a265e29caec3ea1ab6d",
+      "generation_config.json": "0a3aea82869fe29f20dc95ccf3e2bcff380eca1f5ad6447a4a4b37110b08e43e",
+      "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+      "model-00001-of-00005.safetensors": "e97b877e47fde53a6c6e77aafb36e58e91ee9d95c4a3eeac6f1b5c0e6a1c986e",
+      "model-00002-of-00005.safetensors": "a9a300a43b4724eee2abe7c18ceb26768d0ab011eb0cad19d9bfd2476a24d024",
+      "model-00003-of-00005.safetensors": "111223d173e00bbee81cba1216fad28668df3476706b7fd26f4d5b50f8b3a507",
+      "model-00004-of-00005.safetensors": "ef47f634fa57d46ee134edcc09f34085a47da1e16c12a2abe0d67118be6d72ed",
+      "model-00005-of-00005.safetensors": "0c859795ad3a627a9b95bcb762e059d5b768a4a36fdd4affeff269d93fdecc67",
+      "model.safetensors.index.json": "73b333b0b16e5286ddba615d2caebcd495cf7e616f52eb217a81781393d79de9",
+      "preprocessor_config.json": "f2058c716eef96ccaed1cc1e2d0c08306b62586d535b28d9d08e691b2fab7ca0",
+      "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+      "tokenizer_config.json": "4abd3520120e266da84c0864fee064d1fb10806f02225911a47253dd38dc5f56",
+      "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    }
+  },
+  "judge": {
+    "repo": "Qwen/Qwen3Guard-Gen-8B",
+    "revision": "4505cb1a6f1864f21f8b27f7daf1b9a1aab6edbb",
+    "files": {
+      "LICENSE": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+      "README.md": "186e45caec39c9c7e25732a399baf142370ffc5173767803a6969079f729e77f",
+      "config.json": "984e02d7c38d5aae44f9d803287a5437faf7d5c39ad04409c9e4ed5810291898",
+      "generation_config.json": "5f0bc42aae9f779d06bf620ce685a02cb0cde802d0f27f05c7331aaf0e1fd2d7",
+      "merges.txt": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+      "model-00001-of-00005.safetensors": "017fbd70389fd873bbd89f1b833fe867aa09fcd87438dd35d556a7a8b403b8ea",
+      "model-00002-of-00005.safetensors": "497581027655f3188e40f221d4130a8659c1ebd2191f898500210d69594cc712",
+      "model-00003-of-00005.safetensors": "c5b6112c09d0c89924d98be42a18887d516e1cce92ca537d20dc48ed9a0e29f2",
+      "model-00004-of-00005.safetensors": "ea7cf87db6e61d88c0476dffac16a2c15b99015866ae0e5e733b28ccf756e5c3",
+      "model-00005-of-00005.safetensors": "048a9615fa462914b5028b0e68256176feeee525235d194a6d9985c4973eb8c1",
+      "model.safetensors.index.json": "cd39d5e44c5aadfd1954b598883aea1c4a98822a2f7723d214ef2278b7fec2e4",
+      "tokenizer_config.json": "934e187433b06c5d28519e0347dd293084cf28621f00a86ae7e24e42f8b53e81",
+      "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    }
+  }
+}

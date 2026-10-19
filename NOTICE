@@ -42,7 +42,7 @@ LLM-Check, SAPLMA or any other project is vendored here.
 Vendored source
 ---------------
 
-One third-party file is redistributed, and it is the only one:
+The following third-party source files are redistributed:
 
   references/m4c_evaluator.py
 
@@ -59,3 +59,13 @@ One third-party file is redistributed, and it is the only one:
   verified when the file was added -- check `facebookresearch/mmf` before relying
   on it. Nothing else in this repository is derived from it, and the framework
   runs without it: TextVQA soft accuracy is the only thing that needs it.
+
+  references/plugguard/models.py
+
+  Unmodified StreamingSafetyHead source from Alibaba-AAIG/Kelp, commit
+  de7abe9bb1af1186e12b3fe5bf7fab65c2fdc550, distributed under Apache-2.0.
+  The upstream license is included at references/plugguard/LICENSE and the
+  exact source SHA256 is documented alongside it. Our multimodal generation
+  adapter, causal timestep, development-only fitting and threshold selection,
+  and output buffer are in pipeline/plugguard.py, not edits to this file.
+  No upstream or locally trained model weights are redistributed in Git.

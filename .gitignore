@@ -65,7 +65,10 @@ secrets/
 /datasets/
 # The acceptance pipeline keeps the same rule: assets (checkpoints, benchmark
 # rows, the delivered benign set) are prepared by scripts/02, never committed.
-/assets/
+/assets/*
+!/assets/plugguard/
+/assets/plugguard/*
+!/assets/plugguard/base_models.json
 
 # The path map is per machine. configs/paths.example.json is the template that
 # scripts/02 copies from; configs/paths.json names where this machine keeps its

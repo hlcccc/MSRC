@@ -1,5 +1,13 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
+> **PlugGuard acceptance branch, 2026-10-19.** The five entry points and the
+> factual eight-signal protocol are unchanged; step 04 now uses PlugGuard only.
+> [Test flow](docs/PLUGGUARD_TEST_FLOW.md) |
+> [Version boundaries and SingGuard rollback](docs/SAFETY_VERSIONS.md).
+> The original SingGuard code is retained at tag
+> `singguard-before-plugguard-20261019`; never mix its operating point or results
+> with this branch. Weights and experimental data are not stored in Git.
+
 **Twelve candidate signals, seven external and five internal, mapped to a
 calibrated hallucination-risk score from a single input.**
 
@@ -25,8 +33,10 @@ use more than the model's text, which is the point:
 The risk is factual: **does the answer contradict the image?** Content-safety risk
 — does the answer violate a stated policy — is a different question with a
 different label and different evidence. It does not share this factual decision
-layer: the acceptance pipeline uses a separate safety guard, development-only
-threshold selection and pre-generation output gate.
+layer: this branch uses a separate PlugGuard adaptation, development-only head
+fitting and threshold selection, and a causal per-token output gate during
+generation. The original SingGuard pre-generation gate remains in the rollback
+tag, not as a fallback inside this branch's step 04.
 
 ### Where the borrowed names overstate what is implemented
 

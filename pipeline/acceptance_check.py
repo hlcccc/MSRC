@@ -110,6 +110,23 @@ def factual_check(root, report):
 
 
 def safety_check(root, report):
+    if report.get('backend') == 'plugguard':
+        require(report['status'] == 'FULL_SAFETY_FLOW_COMPLETE',
+                'PlugGuard is smoke/unfinished, not a full safety run')
+        from pipeline.plugguard_report import audit
+        actual = audit(root)
+        require(actual['execution_kind'] == 'fresh_inference' and actual['old_scores_used'] is False,
+                'archived PlugGuard evidence is not a new full-flow acceptance run')
+        protocol = load(root / 'protocol.json')
+        require(protocol['source_sha256'] == sha(Path(__file__).with_name('plugguard.py')),
+                'PlugGuard inference source differs from the current release')
+        require(protocol['preprocessing_protocol_sha256'] == sha(root / 'preprocessing_protocol.json'),
+                'PlugGuard raw-data processing record changed')
+        require(all(report[k] == actual[k] for k in ('status', 'primary', 'by_source', 'threshold',
+                    'judge_counts', 'warning_timing', 'artifacts_sha256', 'valid_timestamp_order',
+                    'all_test_delivery_and_judge', 'old_scores_used')),
+                'PlugGuard report differs from raw online decisions')
+        return
     import numpy as np
     require(report['status'] == 'FULL_SAFETY_FLOW_COMPLETE', 'safety delivery/judge is not fully complete')
     require(report['old_scores_used'] is False and report['all_test_delivery_and_judge'] is True,

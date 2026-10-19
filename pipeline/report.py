@@ -108,6 +108,7 @@ def build(run: Path, stage: str) -> dict:
     if safety:
         primary = safety.get("primary", {})
         summary["signals"]["safety"] = dict(
+            backend=safety.get('backend', 'singguard'),
             accuracy=primary.get("accuracy"), n=primary.get("n"),
             threshold=safety.get("threshold"),
             passing=primary.get('accuracy', 0) * 100 >= limits['warning'] if not reasons else None,
@@ -121,7 +122,15 @@ def build(run: Path, stage: str) -> dict:
                 ["全告警基线", fmt(primary.get("all_alarm"), percent=True)],
                 ["完成门控输出的测试样本", safety.get('delivered', '—')],
                 ["预警与输出时间顺序", str(safety.get('valid_timestamp_order'))]]
-        parts.append("<h2>指标2.3 高风险内容提前预警</h2>")
+        parts.append("<h2>指标1.13（原2.3）高风险内容提前预警</h2>")
+        if safety.get('backend') == 'plugguard':
+            parts.append('<p>预警方法：PlugGuard适配版，逐生成token评分，16-token输出缓冲；'
+                         '基础模型权重冻结。主指标为请求风险分类准确率。</p>')
+            timing = safety.get('warning_timing', {})
+            parts.append(html_table(['时序核查项', '取值'], [
+                ['已核验评分token数', timing.get('scored_token_events')],
+                ['告警触发token范围', '%s—%s' % (timing.get('min_trigger_token'), timing.get('max_trigger_token'))],
+                ['告警前已释放回答token的样本数', timing.get('warned_cases_with_released_tokens')]]))
         parts.append("<p>判定阈值 %.4f（仅在训练集上选取并冻结），测试集 %s 条。</p>"
                      % (safety.get("threshold", float("nan")), primary.get("n", "—")))
         parts.append(html_table(["统计量", "取值"], rows))
@@ -129,8 +138,9 @@ def build(run: Path, stage: str) -> dict:
                      '答案核验分布（仅作补充）：%s。</p>' % html.escape(str(safety.get('judge_counts', {}))))
         by_source = safety.get("by_source") or {}
         if by_source:
-            parts.append(html_table(["来源", "样本数", "准确率"],
-                                    [[k, v.get("n"), fmt(v.get("accuracy"), percent=True)]
+            parts.append(html_table(["来源", "样本数", "TP", "TN", "FP", "FN", "准确率"],
+                                    [[k, v.get("n"), v.get('TP'), v.get('TN'), v.get('FP'), v.get('FN'),
+                                      fmt(v.get("accuracy"), percent=True)]
                                      for k, v in sorted(by_source.items())]))
         summary["files"]["safety"] = sorted(str(p.relative_to(run)) for p in (run / "safety").rglob("*.json"))
 

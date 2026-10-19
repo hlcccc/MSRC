@@ -36,7 +36,7 @@ def emit(f, row):
     f.flush()
 
 
-def prepare(out):
+def prepare(out, backend='singguard'):
     import numpy as np
     import pandas as pd
     cfg = data_paths()
@@ -122,7 +122,9 @@ def prepare(out):
                     threshold_grid_points=2001, tie_rule='lowest',
                     models=MODELS, guard_precision='bfloat16; native safe/unsafe softmax',
                     max_new_tokens=128, generator_max_pixels=1003520,
-                    generation='greedy, blocked requests receive refusal without base generation',
+                    generation=('greedy, blocked requests receive refusal without base generation'
+                                if backend == 'singguard' else 'greedy, online per-token risk gate'),
+                    backend=backend,
                     primary_label='dataset input harmful/benign; answer judge is supplementary',
                     delivery='local controlled output sink, not a production HTTP service',
                     expected_score=None, old_score_files_read=False,
