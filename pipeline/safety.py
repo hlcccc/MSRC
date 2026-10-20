@@ -12,6 +12,8 @@ from pathlib import Path
 
 from pipeline.common import (inside, readable, sha, save, read_rows, emit,
                              initialize, select_device, SEED, model_paths, data_paths)
+from pipeline.safety_split import (SPLIT_VERSION, source_sha256, split_rows,
+                                   validate_partition)
 
 BASE = Path(__file__).resolve().parent.parent
 MODELS = model_paths()
@@ -37,7 +39,6 @@ def emit(f, row):
 
 
 def prepare(out, backend='singguard'):
-    import numpy as np
     import pandas as pd
     cfg = data_paths()
     root = cfg['safety']
@@ -90,13 +91,10 @@ def prepare(out, backend='singguard'):
                                 category='benign', label=0)
     if len(native) != 6720 or len(origins) != len(native):
         raise ValueError('full 5040 + 1680 benchmark required')
-    dev_groups = set()
     for label in (0, 1):
         groups = sorted({r['group'] for r in origins.values() if r['label'] == label})
         if len(groups) != 1680:
             raise ValueError('unexpected group count')
-        order = np.random.default_rng(SEED).permutation(len(groups))
-        dev_groups.update(groups[i] for i in order[:len(groups)//2])
     rows = []
     image_hashes = {}
     for rid in sorted(native):
@@ -107,8 +105,9 @@ def prepare(out, backend='singguard'):
         if str(image) not in image_hashes:
             image_hashes[str(image)] = sha(image)
         origin = origins[rid]
-        rows.append(dict(id=rid, image=str(image), question=r['question'], **origin,
-                         split='dev' if origin['group'] in dev_groups else 'test'))
+        rows.append(dict(id=rid, image=str(image), question=r['question'], **origin))
+    rows = split_rows(rows, image_hashes, SEED)
+    split_audit = validate_partition(rows, image_hashes)
     counts = Counter((r['split'], r['suite'], r['label']) for r in rows)
     if any(n != 840 for n in counts.values()) or len(counts) != 8:
         raise ValueError('group-stratified halves do not balance')
@@ -116,8 +115,11 @@ def prepare(out, backend='singguard'):
         for r in rows:
             emit(f, r)
     save(out / 'input_hashes.json', dict(source=hashes, images=image_hashes))
-    protocol = dict(seed=SEED, group='official source ID, not native TYPO row index',
-                    split='independent sorted harmful/benign group lists; default_rng(seed); first half dev',
+    protocol = dict(seed=SEED, group='official source ID union identical image SHA256 and exact question',
+                    split='seeded original-group order; exact balanced whole-component subsets by label',
+                    split_version=SPLIT_VERSION, split_source_sha256=source_sha256(),
+                    split_integrity=split_audit,
+                    input_hashes_sha256=sha(out / 'input_hashes.json'),
                     n_dev=3360, n_test=3360, group_overlap=0,
                     threshold_grid_points=2001, tie_rule='lowest',
                     models=MODELS, guard_precision='bfloat16; native safe/unsafe softmax',
@@ -131,7 +133,7 @@ def prepare(out, backend='singguard'):
                     inputs_sha256=sha(out / 'inputs.jsonl'), script_sha256=sha(__file__),
                     created_ns=time.time_ns())
     save(out / 'protocol.json', protocol)
-    print('PREPARED 6720; dev=3360 test=3360; original_group_overlap=0', flush=True)
+    print('PREPARED 6720; dev=3360 test=3360; original_group_overlap=0; exact_request_overlap=0', flush=True)
     return rows
 
 
@@ -197,6 +199,8 @@ def metrics(rows, threshold):
 
 def evaluate(out, rows):
     import numpy as np
+    image_hashes = json.loads((out / 'input_hashes.json').read_text(encoding='utf-8'))['images']
+    split_audit = validate_partition(rows, image_hashes)
     score_rows = read_rows(out / 'fresh_scores.jsonl')
     fresh = {r['id']: r for r in score_rows}
     if len(fresh) != len(score_rows) or len({r['id'] for r in rows}) != len(rows):
@@ -224,6 +228,7 @@ def evaluate(out, rows):
     report = dict(status='FRESH_INFERENCE_COMPLETE_DELIVERY_PENDING',
                   n_inferred=len(joined), n_dev=len(dev), n_test=len(test),
                   original_group_overlap=0, threshold=threshold,
+                  split_integrity=split_audit,
                   primary=metrics(test, threshold),
                   by_source={s:metrics([r for r in test if r['suite']==s],threshold)
                              for s in sorted({r['suite'] for r in test})},
@@ -333,6 +338,8 @@ def main():
         protocol = json.loads((out/'protocol.json').read_text(encoding='utf-8'))
         if protocol['inputs_sha256'] != sha(out/'inputs.jsonl') or protocol['script_sha256'] != sha(__file__):
             raise ValueError('protocol input or code changed')
+        if protocol.get('split_version') != SPLIT_VERSION or protocol.get('split_source_sha256') != source_sha256():
+            raise ValueError('safety split implementation changed after preparation')
     if args.phase in ('score','run'):
         score(out, rows)
     if args.phase in ('evaluate','delivery','run'):

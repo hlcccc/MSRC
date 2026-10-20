@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pipeline import acceptance_check, common, plugguard, plugguard_report as pg
+from pipeline.safety_split import SPLIT_VERSION, source_sha256, validate_partition
 
 
 def dump(root, name, value):
@@ -27,7 +28,9 @@ def inputs():
                 group = '%s:%d:%d' % (side, label, i)
                 for suite in suites:
                     rows.append(dict(id=group + ':' + suite, group=group, label=label,
-                                     split=side, suite=suite, question='fixture', image='/fixture/image.png'))
+                                     split=side, suite=suite, question=group + ':' + suite,
+                                     image=str(Path('/fixture/image.png').resolve()),
+                                     image_sha256='a' * 64, split_group=group))
     return rows
 
 
@@ -38,6 +41,7 @@ def evidence(tmp_path, monkeypatch, inputs):
     root.mkdir()
     jsonl(root, 'inputs.jsonl', inputs)
     roles = pg.assign_roles(inputs)
+    dump(root, 'input_hashes.json', {'images': {inputs[0]['image']: 'a' * 64}})
     source = Path(plugguard.__file__).read_bytes()
     (root / 'inference_source.py').write_bytes(source)
     (root / 'head.pt').write_bytes(b'fixture, not a trained model')
@@ -45,8 +49,11 @@ def evidence(tmp_path, monkeypatch, inputs):
     dump(root, 'protocol.json', dict(source_inputs_sha256=common.sha(root / 'inputs.jsonl'),
          source_sha256=common.sha(root / 'inference_source.py'), generation_max_tokens=128,
          release_buffer_tokens=16, created_ns=90, execution_kind='fresh_inference',
+         split_version=SPLIT_VERSION, split_source_sha256=source_sha256(),
+         input_hashes_sha256=common.sha(root / 'input_hashes.json'),
          preprocessing_protocol_sha256=common.sha(root / 'preprocessing_protocol.json')))
     dump(root, 'dataset_identity.json', dict(test_used_for_selection=False, original_group_overlap=0,
+         split_integrity=validate_partition(inputs, roles=roles),
          roles={k: sorted(v) for k, v in roles.items()}))
     jsonl(root, 'development_generation.jsonl', [r for r in inputs if r['split'] == 'dev'])
     jsonl(root, 'calibration_scores.jsonl', [dict(id=r['id'], label=r['label'],
@@ -99,7 +106,7 @@ def test_cross_split_variant_rejected_without_changing_counts(inputs):
 
 
 def test_checkpoint_identity_is_relocatable_but_content_sensitive(inputs):
-    hashes = {'/fixture/image.png': 'a' * 64}
+    hashes = {inputs[0]['image']: 'a' * 64}
     before = pg.checkpoint_identity(inputs, hashes)
     relocated = [dict(r, image='/different/image.png') for r in inputs]
     assert before == pg.checkpoint_identity(relocated, {'/different/image.png': 'a' * 64})
@@ -147,6 +154,28 @@ def test_test_set_score_cannot_select_threshold(evidence):
     state['threshold'] = .5
     dump(evidence, 'threshold.json', state)
     with pytest.raises(ValueError, match='development-only'):
+        pg.audit(evidence)
+
+
+def test_report_rejects_cross_id_identical_requests_even_if_original_ids_are_disjoint(inputs):
+    dev = next(r for r in inputs if r['split'] == 'dev' and r['suite'] == 'TYPO')
+    test = next(r for r in inputs if r['split'] == 'test' and r['suite'] == 'TYPO')
+    test['question'] = dev['question']
+    assert dev['group'] != test['group']
+    with pytest.raises(ValueError, match='component crosses'):
+        pg.assign_roles(inputs)
+
+
+def test_report_does_not_trust_fabricated_zero_overlap_metadata(evidence):
+    rows = common.read_rows(evidence / 'inputs.jsonl')
+    dev = next(r for r in rows if r['split'] == 'dev' and r['suite'] == 'TYPO')
+    test = next(r for r in rows if r['split'] == 'test' and r['suite'] == 'TYPO')
+    test['question'] = dev['question']
+    jsonl(evidence, 'inputs.jsonl', rows)
+    protocol = pg.load(evidence / 'protocol.json')
+    protocol['source_inputs_sha256'] = common.sha(evidence / 'inputs.jsonl')
+    dump(evidence, 'protocol.json', protocol)
+    with pytest.raises(ValueError, match='component crosses'):
         pg.audit(evidence)
 
 

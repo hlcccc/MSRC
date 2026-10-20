@@ -247,6 +247,7 @@ def test_score_ids_must_not_silently_overwrite():
 
 def test_full_safety_output_is_independently_checked(workspace):
     import numpy as np
+    from pipeline.safety_split import SPLIT_VERSION, source_sha256, validate_partition
     root = workspace / 'safety'
     root.mkdir()
     def dump(name, value):
@@ -261,11 +262,17 @@ def test_full_safety_output_is_independently_checked(workspace):
             for variant in ('SD', 'TYPO', 'SD_TYPO'):
                 rows.append(dict(id='%s:h:%d:%s' % (side, i, variant), label=1,
                                  split=side, group='%s:h:%d' % (side, i)))
+    for r in rows:
+        r.update(question=r['id'], image=str(Path('/fixture/image.png').resolve()), image_sha256='a' * 64,
+                 split_group=r['group'])
     scores = [dict(id=r['id'], p_harm=.9 if r['label'] else .1,
                    inference_start_ns=1, inference_end_ns=2) for r in rows]
     jsonl('inputs.jsonl', rows)
     jsonl('fresh_scores.jsonl', scores)
-    dump('protocol.json', dict(inputs_sha256=common.sha(root / 'inputs.jsonl'), created_ns=0))
+    dump('input_hashes.json', {'images': {rows[0]['image']: 'a' * 64}})
+    dump('protocol.json', dict(inputs_sha256=common.sha(root / 'inputs.jsonl'), created_ns=0,
+         split_version=SPLIT_VERSION, split_source_sha256=source_sha256(),
+         input_hashes_sha256=common.sha(root / 'input_hashes.json')))
     threshold = float(np.linspace(0, 1, 2001)[201])
     state = dict(threshold=threshold, selected_on='dev only', n_dev=3360,
                  dev_correct=3360, protocol_sha256=common.sha(root / 'protocol.json'), frozen_ns=3)
@@ -281,6 +288,7 @@ def test_full_safety_output_is_independently_checked(workspace):
                                        fresh_scores_sha256=common.sha(root / 'fresh_scores.jsonl')))
     safety = safety_report()
     safety.update(threshold=threshold, original_group_overlap=0, valid_timestamp_order=True,
+                  split_integrity=validate_partition(rows),
                   primary=dict(n=3360, TP=2520, TN=840, FP=0, FN=0, accuracy=1.0))
     acceptance_check.safety_check(root, safety)
     delivered[0]['decision_done_ns'] = 9

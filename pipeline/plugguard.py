@@ -27,6 +27,7 @@ from pipeline.common import (ROOT as PROJECT, SEED, initialize, inside, load_con
 from pipeline.preflight import check_gpu, wait_for_gpu
 from pipeline.plugguard_report import (assign_roles, checkpoint_identity,
                                       write_report)
+from pipeline.safety_split import SPLIT_VERSION, source_sha256, validate_partition
 
 
 ROOT = None
@@ -156,8 +157,8 @@ def dataset():
     path = owned_read(ROOT / 'inputs.jsonl')
     INPUT_HASH = sha(path)
     rows = load_rows(path)
-    roles = assign_roles(rows)
     image_hashes = json.loads((path.parent / 'input_hashes.json').read_text())['images']
+    roles = assign_roles(rows, image_hashes)
     assert all(r['image'] in image_hashes for r in rows)
     for row in rows:
         row['role'] = next(role for role, ids in roles.items() if row['id'] in ids)
@@ -166,6 +167,7 @@ def dataset():
         'original_split': {'dev': 3360, 'test': 3360},
         'roles': {role: sorted(ids) for role, ids in roles.items()},
         'test_used_for_selection': False, 'original_group_overlap': 0,
+        'split_integrity': validate_partition(rows, image_hashes, roles),
     })
     return rows
 
@@ -582,8 +584,11 @@ def load_checkpoint(package, rows):
     package = owned_read(package)
     state = json.loads((package / 'threshold.json').read_text(encoding='utf-8'))
     origin = json.loads((package / 'protocol.json').read_text(encoding='utf-8'))
-    expected_head = '695cc61cc6b571d5570b157b28452d2addd458b997d872c47eedb203471b11af'
-    assert sha(package / 'head.pt') == state['head_sha256'] == expected_head
+    if origin.get('split_version') != SPLIT_VERSION:
+        raise ValueError('Frozen head uses obsolete safety split')
+    if origin.get('split_source_sha256') != source_sha256():
+        raise ValueError('Frozen head split implementation differs')
+    assert sha(package / 'head.pt') == state['head_sha256']
     assert origin['upstream_commit'] == COMMIT
     assert origin['native_generator_config_sha256'] == sha(MODEL / 'generation_config.json')
     training_inputs = load_rows(package / 'training_inputs.jsonl')
@@ -591,7 +596,7 @@ def load_checkpoint(package, rows):
     assert sha(package / 'training_inputs.jsonl') == origin['source_inputs_sha256']
     assert checkpoint_identity(training_inputs, training_hashes) == checkpoint_identity(rows, image_hashes), \
         'Frozen head belongs to different input identities/images/splits'
-    expected_roles = assign_roles(rows)
+    expected_roles = assign_roles(rows, image_hashes)
     supplied = json.loads((package / 'dataset_identity.json').read_text(encoding='utf-8'))['roles']
     assert all(len(supplied[k]) == len(v) and set(supplied[k]) == v for k, v in expected_roles.items())
     for name in ['head.pt', 'development_generation.jsonl', 'calibration_scores.jsonl']:
@@ -616,6 +621,8 @@ def run(head_package=None, mode='full'):
     rows = dataset()
     protocol = {
         'source_inputs_sha256': INPUT_HASH, 'upstream_commit': COMMIT, 'created_ns': time.time_ns(),
+        'split_version': SPLIT_VERSION, 'split_source_sha256': source_sha256(),
+        'input_hashes_sha256': sha(ROOT / 'input_hashes.json'),
         'primary_label': 'Original request harmful/benign label; response safety is separate supplementary judging',
         'adaptations': ['Qwen2.5-VL multimodal cached decoding', 'constant causal dt=1/2048',
                         'trainable prefix initialization', 'original request-risk targets on all generated positions'],
@@ -718,7 +725,7 @@ def main():
     from pipeline.safety import prepare
     prepare(ROOT, backend='plugguard')
     shutil.copyfile(ROOT / 'protocol.json', destination(ROOT / 'preprocessing_protocol.json'))
-    head_package = args.head_package or (PROJECT / 'assets/plugguard/qwen_20261019'
+    head_package = args.head_package or (PROJECT / 'assets/plugguard/qwen_splitv2'
                                          if args.mode == 'smoke' else None)
     try:
         run(head_package, args.mode)

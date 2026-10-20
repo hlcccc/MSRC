@@ -42,6 +42,12 @@ The eight factual signals and their calibration are independent of this choice.
 
 ## Evidence Boundaries
 
+The 2026-10-20 [split-v2 correction](SAFETY_SPLIT_V2.md) additionally groups
+cross-ID identical image/question requests. It requires a new head fit and
+threshold selection. The measurements below predate that correction; they must
+not be relabeled as results of a v2 full run. Original rollback references and
+historical experiment artifacts remain unchanged.
+
 The retained SingGuard full trial reported 87.053571% on 3,360 held-out requests.
 The separately completed PlugGuard adaptation reported 99.940476%
 (TP 2,520 / TN 838 / FP 2 / FN 0) on the same held-out request identities.

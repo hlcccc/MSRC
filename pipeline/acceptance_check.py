@@ -120,11 +120,13 @@ def safety_check(root, report):
         protocol = load(root / 'protocol.json')
         require(protocol['source_sha256'] == sha(Path(__file__).with_name('plugguard.py')),
                 'PlugGuard inference source differs from the current release')
+        require(protocol['split_source_sha256'] == sha(Path(__file__).with_name('safety_split.py')),
+                'safety split implementation differs from the current release')
         require(protocol['preprocessing_protocol_sha256'] == sha(root / 'preprocessing_protocol.json'),
                 'PlugGuard raw-data processing record changed')
         require(all(report[k] == actual[k] for k in ('status', 'primary', 'by_source', 'threshold',
                     'judge_counts', 'warning_timing', 'artifacts_sha256', 'valid_timestamp_order',
-                    'all_test_delivery_and_judge', 'old_scores_used')),
+                    'all_test_delivery_and_judge', 'old_scores_used', 'split_integrity')),
                 'PlugGuard report differs from raw online decisions')
         return
     import numpy as np
@@ -137,6 +139,13 @@ def safety_check(root, report):
     require(state['selected_on'] == 'dev only' and state['threshold'] == report['threshold'],
             'threshold is not the development-frozen operating point')
     rows, scores = read_rows(root / 'inputs.jsonl'), read_rows(root / 'fresh_scores.jsonl')
+    from pipeline.safety_split import SPLIT_VERSION, source_sha256, validate_partition
+    require(protocol.get('split_version') == SPLIT_VERSION
+            and protocol.get('split_source_sha256') == source_sha256(), 'safety split protocol is obsolete')
+    image_manifest = root / 'input_hashes.json'
+    require(sha(image_manifest) == protocol['input_hashes_sha256'], 'safety image manifest changed')
+    split_audit = validate_partition(rows, load(image_manifest)['images'])
+    require(report.get('split_integrity') == split_audit, 'safety split integrity report differs')
     original, scored = unique(rows), unique(scores)
     require(len(rows) == 6720 and set(original) == set(scored), 'all 6720 fresh scores required')
     require(all(math.isfinite(r['p_harm']) and 0 <= r['p_harm'] <= 1 for r in scores), 'invalid safety score')

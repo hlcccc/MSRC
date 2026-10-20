@@ -50,3 +50,9 @@ def test_new_entry_point_is_exclusively_plugguard():
     assert '-m pipeline.delivery' not in source
     assert '--backend)' not in source
     assert 'SAFETY_SMOKE_COMPLETED_NOT_ACCEPTANCE' in source
+
+
+def test_split_v2_smoke_never_defaults_to_the_old_head_package():
+    source = (ROOT / 'pipeline/plugguard.py').read_text(encoding='utf-8')
+    assert 'assets/plugguard/qwen_splitv2' in source
+    assert 'assets/plugguard/qwen_20261019' not in source

@@ -1,5 +1,14 @@
 # PlugGuard Acceptance Release: 2026-10-19
 
+## Safety Split Correction: 2026-10-20
+
+The current branch additionally enforces [split v2](SAFETY_SPLIT_V2.md): original
+question groups linked by identical image content and exact question text stay
+together, including across the fit/calibration boundary. All 6,720 inputs remain.
+Use a fresh run ID and refit the head and threshold; the 2026-10-19 head and scores
+cannot establish performance on this corrected split. The historical results and
+four-case smoke below describe the earlier release, not new v2 performance.
+
 ## Version Boundary
 
 This is a separate source tree, not an in-place update of the completed original
@@ -53,15 +62,18 @@ The final report separately checks file integrity, coverage, and metric targets.
 
 1. Rebuild all 6,720 input records from the source manifests and official source
    IDs; hash the images. Keep each harmful original question's SD, TYPO, and
-   SD_TYPO variants together. Preserve the original source/label-stratified
-   3,360 development / 3,360 test split, with zero original-question overlap.
+   SD_TYPO variants together. Transitively merge original groups sharing an
+   identical image SHA256 and exact question. Select whole components with
+   source/label-stratified 3,360 development / 3,360 test counts; neither original
+   questions nor exact duplicate requests may cross partitions.
 2. Verify the exact Qwen2.5-VL-7B-Instruct and Qwen3Guard-Gen-8B files, including
    weight shards, against `assets/plugguard/base_models.json`. Never update the
    base model's weights.
 3. By default, freshly generate development responses and extract hidden states.
    Fit the PlugGuard head on 2,688 development records, then choose its threshold
-   using the remaining 672 development records only. Fit/calibration groups do
-   not overlap. There is one fixed training epoch and no test-driven search.
+   using the remaining 672 development records only. Fit/calibration components
+   do not overlap, including cross-ID duplicates. There is one fixed training
+   epoch and no test-driven search.
    Freeze the head and threshold before the first held-out test generation.
 4. For all 3,360 held-out inputs, greedily generate up to 128 tokens, score each
    generated token causally, and gate a 16-token local output buffer. Store risk,
@@ -83,7 +95,7 @@ For explicitly loading the completed development-trained head instead of refitti
 
 ```bash
 bash scripts/04_score_safety.sh --run-id plugguard_loaded_001 --gpus 0 --mode full \
-  --head-package assets/plugguard/qwen_20261019 --execute
+  --head-package assets/plugguard/qwen_splitv2 --execute
 ```
 
 That option is recorded as `loaded_development_frozen_head`, not a new training
@@ -106,7 +118,9 @@ Outputs include `generation_smoke.json`, `smoke_delivery.jsonl`,
 `answer_judgments.jsonl`, and a report labeled `SMOKE_ONLY_NOT_FULL_ACCEPTANCE`.
 Four cases never substitute for the full 3,360-case accuracy.
 The smoke command also needs the separately delivered development-trained head
-at `assets/plugguard/qwen_20261019` (or an explicit `--head-package` path).
+at `assets/plugguard/qwen_splitv2` (or an explicit `--head-package` path).
+This v2 package must first be trained and verified on the corrected split; the
+older package is not a substitute and is rejected.
 
 ## Existing Evidence Is Not A New Run
 
@@ -122,3 +136,6 @@ python -m pipeline.plugguard_report --out runs/plugguard_existing_evidence_20261
 
 This last command audits stored evidence and needs no GPU. It is not the command
 to reproduce generation, fitting, or online warning.
+It is a legacy command for the frozen 2026-10-19 release, commit `80089f2`.
+The current v2 checker rejects that legacy split; retain the earlier report and
+source together rather than rewriting them to appear compatible with v2.
