@@ -9,6 +9,13 @@ Use a fresh run ID and refit the head and threshold; the 2026-10-19 head and sco
 cannot establish performance on this corrected split. The historical results and
 four-case smoke below describe the earlier release, not new v2 performance.
 
+The corrected full run subsequently completed on 2026-10-23: request-risk
+accuracy 99.970238% (TP 2,519 / TN 840 / FP 0 / FN 1), with all 3,360 answer
+judgments and the original checker complete. The disclosed development recovery,
+matched historical comparison, timing regressions, and answer-safety limitations
+are recorded in [the split-v2 results](PLUGGUARD_SPLIT_V2_RESULTS_20261023.md).
+This does not replace the older evidence or claim a new six-cell factual run.
+
 ## Version Boundary
 
 This is a separate source tree, not an in-place update of the completed original
