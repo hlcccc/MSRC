@@ -124,6 +124,24 @@ def safety_check(root, report):
                 'safety split implementation differs from the current release')
         require(protocol['preprocessing_protocol_sha256'] == sha(root / 'preprocessing_protocol.json'),
                 'PlugGuard raw-data processing record changed')
+        if protocol.get('shared_gpu_execution'):
+            policy_path = root / 'shared_gpu_policy.json'
+            require(sha(policy_path) == protocol['shared_gpu_policy_sha256'],
+                    'Frozen shared GPU policy changed')
+            policy, runtime = load(policy_path), load(root / 'runtime_statistics.json')
+            require(protocol['gpu_resource_source_sha256'] == sha(Path(__file__).with_name('gpu_sharing.py')),
+                    'GPU resource control source differs from the current release')
+            require(str(policy['gpu_index']) == protocol['gpu']
+                    and policy['allocator_cap_gib'] == protocol['allocator_cap_gib'] == 24,
+                    'GPU sharing permission differs from the actual device or memory cap')
+            control = runtime['resource_control']
+            require(control['shared_gpu_execution'] is True
+                    and control['target_duty_when_shared'] == policy['target_duty_when_shared']
+                    and control['hardware_compute_partition'] is False
+                    and control['zero_interference_guaranteed'] is False,
+                    'Shared GPU run lacks its cooperative resource disclosure')
+            require(runtime['peak_reserved_bytes'] <= 24 * 1024**3,
+                    'Shared GPU allocator exceeded the frozen 24 GiB cap')
         require(all(report[k] == actual[k] for k in ('status', 'primary', 'by_source', 'threshold',
                     'judge_counts', 'warning_timing', 'artifacts_sha256', 'valid_timestamp_order',
                     'all_test_delivery_and_judge', 'old_scores_used', 'split_integrity')),

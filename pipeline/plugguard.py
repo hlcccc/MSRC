@@ -28,6 +28,7 @@ from pipeline.preflight import check_gpu, wait_for_gpu
 from pipeline.plugguard_report import (assign_roles, checkpoint_identity,
                                       write_report)
 from pipeline.safety_split import SPLIT_VERSION, source_sha256, validate_partition
+from pipeline.gpu_sharing import load_shared_policy
 
 
 ROOT = None
@@ -58,16 +59,49 @@ def destination(path):
 
 
 class WorkBudget:
-    """Stop our worker if another job starts using the selected GPU."""
+    """Default to exclusive use; explicitly shared runs yield between work blocks."""
     def __init__(self):
-        self.last_check = 0.0
+        self.last_check = float('-inf')
+        self.policy = load_shared_policy()
+        self.work_seconds = 0.0
+        self.idle_seconds = 0.0
+        self.blocks = 0
+        self.effective_duty = 1.0
+
+    def snapshot(self):
+        return dict(shared_gpu_execution=self.policy is not None,
+                    target_duty_when_shared=self.policy['target_duty_when_shared'] if self.policy else None,
+                    effective_duty=self.effective_duty, completed_blocks=self.blocks,
+                    measured_work_block_seconds=self.work_seconds,
+                    voluntary_idle_seconds=self.idle_seconds,
+                    hardware_compute_partition=False, zero_interference_guaranteed=False)
 
     @contextlib.contextmanager
     def work(self, stage):
-        if time.monotonic() - self.last_check >= 120:
-            check_gpu(ignore_current_process=True)
+        interval = self.policy['check_interval_seconds'] if self.policy else 120
+        if time.monotonic() - self.last_check >= interval:
+            current = load_shared_policy()
+            if (current or {}).get('source_sha256') != (self.policy or {}).get('source_sha256'):
+                raise ValueError('GPU sharing permission changed during a frozen run')
+            device = check_gpu(ignore_current_process=True)[0]
+            if self.policy:
+                self.effective_duty = (self.policy['target_duty_when_shared']
+                                       if device.get('other_processes') else 1.0)
+                save('resource_policy.json', dict(self.snapshot(), stage=stage, device=device))
             self.last_check = time.monotonic()
+        if self.policy:
+            torch.cuda.synchronize()
+        started = time.monotonic()
         yield
+        if self.policy:
+            torch.cuda.synchronize()
+            elapsed = time.monotonic() - started
+            idle = elapsed * (1 / self.effective_duty - 1)
+            self.work_seconds += elapsed
+            self.blocks += 1
+            if idle:
+                time.sleep(idle)
+                self.idle_seconds += idle
 
 
 def save(name, obj):
@@ -127,6 +161,9 @@ def setup():
     save('environment.json', {'gpu': wait_for_gpu(), 'python': sys.version,
                              'generator': str(MODEL), 'judge': str(JUDGE),
                              'verified_model_identities': identities})
+    shared_policy = load_shared_policy()
+    if shared_policy:
+        shutil.copyfile(shared_policy['source_path'], destination(ROOT / 'shared_gpu_policy.json'))
     import torch as th
     torch = th
     torch.set_num_threads(2)
@@ -634,7 +671,9 @@ def run(head_package=None, mode='full'):
         'gpu': os.environ['CUDA_VISIBLE_DEVICES'],
         'native_generator_config_sha256': sha(MODEL / 'generation_config.json'),
         'native_logits_processors_reused': True, 'cached_decode_new_tokens': 1,
-        'allocator_cap_gib': ALLOCATOR_GIB, 'shared_gpu_execution': False,
+        'allocator_cap_gib': ALLOCATOR_GIB, 'shared_gpu_execution': budget.policy is not None,
+        'shared_gpu_policy_sha256': sha(ROOT / 'shared_gpu_policy.json') if budget.policy else None,
+        'gpu_resource_source_sha256': sha(PROJECT / 'pipeline/gpu_sharing.py'),
         'source_sha256': sha(__file__), 'backend': 'plugguard',
         'execution_kind': 'fresh_inference',
         'training_mode': 'loaded_development_frozen_head' if head_package else 'development_refit',
@@ -699,6 +738,7 @@ def run(head_package=None, mode='full'):
         'latency_includes_prefix_initialization_and_synchronization': True,
         'latency_excludes_voluntary_sharing_idle': True,
         'all_test_rows_present': True, 'test_used_for_selection': False,
+        'resource_control': budget.snapshot(),
     })
     report = write_report(ROOT)
     print(json.dumps({'primary': report['primary'], 'by_source': report['by_source']}, indent=2), flush=True)

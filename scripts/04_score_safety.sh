@@ -6,13 +6,14 @@ set -euo pipefail
 source "$(dirname "$0")/_common.sh"
 set_mode "$@"
 
-RUN_ID=""; GPU=""; RUN_MODE="full"; HEAD_PACKAGE=""; REFIT=0
+RUN_ID=""; GPU=""; RUN_MODE="full"; HEAD_PACKAGE=""; REFIT=0; SHARE_POLICY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --run-id) RUN_ID="$2"; shift 2 ;;
     --gpus)   GPU="$2"; shift 2 ;;
     --mode)   RUN_MODE="$2"; shift 2 ;;
     --head-package) HEAD_PACKAGE="$2"; shift 2 ;;
+    --shared-gpu-policy) SHARE_POLICY="$2"; shift 2 ;;
     --refit) REFIT=1; shift ;;
     --execute|--run|--check) shift ;;
     *) die "unknown option: $1" ;;
@@ -26,6 +27,7 @@ case "$RUN_MODE" in full|smoke) ;; *) die "--mode must be full or smoke" ;; esac
 require_python
 export MSRC_GPU="${GPU:-0}"
 export MSRC_SAFETY_BACKEND="plugguard"
+[ -z "$SHARE_POLICY" ] || export MSRC_GPU_SHARE_POLICY="$SHARE_POLICY"
 RUN_DIR="$("$PYTHON_BIN" -c 'import sys; from pipeline.common import inside, runs_dir; print(inside(runs_dir()/sys.argv[1]))' "$RUN_ID")"
 OUT="$RUN_DIR/safety"
 
@@ -35,6 +37,7 @@ log "backend      : plugguard (this release never falls back to SingGuard)"
 log "gpu          : $MSRC_GPU"
 log "output       : $OUT"
 log "mode         : $MODE"
+[ -z "$SHARE_POLICY" ] || log "shared policy: $SHARE_POLICY (explicit user authorization required)"
 
 if [ "$MODE" != "execute" ]; then
   printf ' plan: %s -m pipeline.plugguard --out %s --mode %s' "$PYTHON_BIN" "$OUT" "$RUN_MODE"

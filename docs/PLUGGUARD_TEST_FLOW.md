@@ -58,6 +58,10 @@ Do not claim overall completion before both the six factual cells and the safety
 test are complete. `SAFETY_COMPLETED` is a stage completion marker, not a pass.
 The final report separately checks file integrity, coverage, and metric targets.
 
+Busy cards remain blocked by default. Only after explicit user permission, use
+the [bounded shared-GPU mode](PLUGGUARD_GPU_SHARING.md) with a frozen run-local
+policy and `--shared-gpu-policy`; record sharing and do not claim isolated timing.
+
 ## Safety Steps Inside 04
 
 1. Rebuild all 6,720 input records from the source manifests and official source

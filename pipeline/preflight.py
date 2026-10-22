@@ -127,6 +127,8 @@ def check_gpu(ignore_current_process=False) -> list[dict]:
     if target is None:
         raise SystemExit("GPU %s does not exist on this machine" % index)
     busy = []
+    current_loaded = False
+    current_memory_mib = 0
     apps = subprocess.check_output(
         ["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,used_memory",
          "--format=csv,noheader,nounits"], text=True)
@@ -135,11 +137,34 @@ def check_gpu(ignore_current_process=False) -> list[dict]:
             continue
         uuid, pid, mem = [part.strip() for part in line.split(",")]
         if uuid == target["uuid"]:
+            current_loaded |= int(pid) == os.getpid()
+            if int(pid) == os.getpid():
+                current_memory_mib += int(mem)
             if ignore_current_process and int(pid) == os.getpid():
                 continue
             owner = subprocess.run(["ps", "-o", "user=", "-p", pid], text=True,
                                    capture_output=True).stdout.strip()
             busy.append(dict(pid=pid, owner=owner or "?", mib=mem))
+    from pipeline.gpu_sharing import load_shared_policy
+    policy = load_shared_policy()
+    if policy is not None:
+        if target['index'] != policy['gpu_index'] or target['uuid'] != policy['gpu_uuid']:
+            raise ValueError('Requested GPU differs from the explicitly authorized shared GPU')
+        unexpected = [p for p in busy if p['owner'] not in policy['allowed_other_users']]
+        if unexpected:
+            raise GPUInUse('Shared GPU contains an unauthorized process owner: %s' % unexpected)
+        free = int(subprocess.check_output([
+            'nvidia-smi', '--id=' + str(target['index']), '--query-gpu=memory.free',
+            '--format=csv,noheader,nounits'], text=True).strip())
+        minimum = (max(policy['min_run_free_mib'],
+                       policy['min_start_free_mib'] - current_memory_mib)
+                   if current_loaded else policy['min_start_free_mib'])
+        if free < minimum:
+            raise GPUInUse('Shared GPU has %d MiB free; this stage requires %d MiB reserve'
+                           % (free, minimum))
+        target.update(free_mib=free, shared_gpu_execution=True,
+                      shared_policy_sha256=policy['source_sha256'], other_processes=busy)
+        return [target]
     if busy:
         raise GPUInUse("GPU %s is already in use (%s); choose another card with --gpus "
                          "or wait. This script never stops another user's job."
