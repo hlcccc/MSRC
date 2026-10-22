@@ -48,3 +48,30 @@ threshold selection, accuracy formula, or acceptance thresholds.
 Use a new code snapshot and run ID before GPU inference. Never replace the code
 under a previously started experiment. Retain any preparatory/failed attempts and
 the original SingGuard rollback unchanged.
+
+## Development-Only Resource Recovery
+
+If an unauthorized GPU owner appears during development extraction, retain the
+failed directory. Do not restart the default entry point over that directory.
+The following explicit recovery copies a verified completed development prefix
+into a new output directory. It refuses sources containing a head, threshold,
+calibration scores or any held-out decisions, and requires byte-identical frozen
+inference code, input/image manifests, model identities and resource policy.
+
+```bash
+export PYTHONPATH="$PWD"
+export MSRC_GPU=1
+export MSRC_GPU_SHARE_POLICY="$PWD/configs/gpu1_shared.local.json"
+"$MSRC_PYTHON" -B scripts/04_recover_plugguard_development.py \
+  --source runs/interrupted_full_001/safety \
+  --out runs/continued_full_002/safety
+```
+
+This is an interrupted experiment with a disclosed continuation, not an
+uninterrupted from-scratch attempt. Per-feature hashes and original metadata are
+preserved in `development_recovery.json` and `recovery_origin/`. The remaining
+development samples are generated normally; fitting, calibration, all 3,360 test
+decisions and answer judgments are new. The report distinguishes the whole
+experiment's inference count from the continuation's new count. Resource rules
+and the existing full acceptance checker remain unchanged. Sources failing for
+other reasons require diagnosis; this command is not a general resume switch.
