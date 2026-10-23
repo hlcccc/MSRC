@@ -48,14 +48,18 @@ git clone --branch codex/plugguard-acceptance-20261019 https://github.com/hlcccc
 cd MSRC-PlugGuard
 ```
 
-Step 02 needs the verified delivery package or the documented raw-source paths,
-including the non-public custom benign data; a bare `--execute` cannot invent
-those assets. Follow [asset preparation](ACCEPTANCE_FLOW.md). The paired model
-fingerprints are committed at `assets/plugguard/base_models.json`; weights are not.
+For public reproduction, step 02 downloads the pinned public originals and
+rebuilds all 1,680 benign inputs with the original deterministic recipe. No local
+delivery package or trained head is needed. Follow the fixed public release tag
+and [six-step procedure](ACCEPTANCE_FLOW.md), with details in
+[public reproduction](PUBLIC_REPRODUCTION.md). A bare `--execute` still does not
+select a preparation mode. The paired model fingerprints are committed at
+`assets/plugguard/base_models.json`; weights are not.
 
 ```bash
 bash scripts/01_setup_envs.sh --execute
-bash scripts/02_prepare_assets_data.sh --execute
+bash scripts/02_prepare_assets_data.sh --execute --download-data --download-models
+bash scripts/02_prepare_assets_data.sh --check
 bash scripts/03_collect_factual.sh --run-id plugguard_full_001 --gpus 0 --mode full --execute
 bash scripts/04_score_safety.sh --run-id plugguard_full_001 --gpus 0 --mode full --execute
 bash scripts/05_score_report.sh --run-id plugguard_full_001 --stage milestone --execute
@@ -102,7 +106,9 @@ This is a disclosed multimodal PlugGuard adaptation with a development-trained
 head, not an unmodified reproduction of the paper's response-risk experiment.
 Local buffer timestamps do not establish production HTTP integration.
 
-For explicitly loading the completed development-trained head instead of refitting:
+The following is a maintenance-only option, NOT the from-scratch acceptance
+procedure. For explicitly loading a completed development-trained head instead
+of refitting:
 
 ```bash
 bash scripts/04_score_safety.sh --run-id plugguard_loaded_001 --gpus 0 --mode full \

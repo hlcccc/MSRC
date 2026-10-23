@@ -1,8 +1,8 @@
 """Turn a downloaded or delivered asset tree into configs/paths.json, then verify it.
 
-Public weights and benchmarks can be downloaded. The 1,680-image custom benign
-dataset cannot: it must accompany the delivery package. Six model roles use
-five distinct checkpoints because the generator is also the Qwen factual model.
+Public weights and benchmarks can be downloaded. The public reproduction recipe
+rebuilds the 1,680-image benign dataset from pinned public instructions. Six model
+roles use five checkpoints because the generator is also the Qwen factual model.
 """
 from __future__ import annotations
 
@@ -220,6 +220,11 @@ def download_models(assets: Path, endpoint: str | None) -> None:
     lock_path = assets / 'models.lock.json'
     if not lock_path.exists():
         lock_path = assets / 'model_expectations.json'
+    if not lock_path.exists():
+        from pipeline import common
+        if (common.ROOT / 'resources/reproduction/models.json').is_file():
+            from pipeline.public_assets import install_model_recipe
+            install_model_recipe(assets)
     previous = json.loads(lock_path.read_text(encoding='utf-8'))['models'] if lock_path.exists() else {}
     models, downloaded = {}, {}
     for name, repo in REPOS.items():
@@ -229,7 +234,8 @@ def download_models(assets: Path, endpoint: str | None) -> None:
         revision = (previous.get(name) or {}).get('revision') or HfApi().model_info(repo).sha
         print("DOWNLOAD %s <- %s" % (name, repo), flush=True)
         target = inside(dest / name)
-        snapshot_download(repo_id=repo, revision=revision, local_dir=str(target), max_workers=2)
+        selection = {'allow_patterns': sorted(previous[name]['files'])} if previous.get(name, {}).get('files') else {}
+        snapshot_download(repo_id=repo, revision=revision, local_dir=str(target), max_workers=2, **selection)
         models[name] = downloaded[repo] = dict(path=str(target), repo=repo, revision=revision)
     apply_model_metadata(assets, models, previous)
     for name, expected in previous.items():

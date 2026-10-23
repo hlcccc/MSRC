@@ -6,7 +6,10 @@
 > [Version boundaries and SingGuard rollback](docs/SAFETY_VERSIONS.md).
 > The original SingGuard code is retained at tag
 > `singguard-before-plugguard-20261019`; never mix its operating point or results
-> with this branch. Weights and experimental data are not stored in Git.
+> with this branch. Model weights, trained heads, and experimental predictions
+> are not stored in Git. The [public six-step acceptance flow](docs/ACCEPTANCE_FLOW.md)
+> downloads public originals, rebuilds the benign inputs from a fixed recipe,
+> and trains all acceptance heads/calibrators afresh, without a local delivery package.
 
 **Twelve candidate signals, seven external and five internal, mapped to a
 calibrated hallucination-risk score from a single input.**
@@ -140,7 +143,7 @@ pip install -e ".[service]"      # the HTTP service
 
 ## Acceptance Reproduction
 
-For project acceptance, use the [five-step acceptance flow](docs/ACCEPTANCE_FLOW.md),
+For project acceptance, use the [six-step acceptance flow](docs/ACCEPTANCE_FLOW.md),
 not the small examples below. It rebuilds inputs from raw POPE/TextVQA and
 MM-SafetyBench assets, collects new model evidence, fits only on development
 groups, then validates complete artifacts before judging the metric targets.

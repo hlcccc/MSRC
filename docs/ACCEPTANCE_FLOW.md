@@ -1,119 +1,106 @@
-# 验收测试流程（第三方从零执行）
+# 4）具体测试流程
 
-本文是《课题二 测试方案》第 7 章"4）具体测试流程"对应的操作说明。五步，每步一条命令；每一步正常结束再执行下一步。
+第三方从GitHub获取本方案对应的固定版本代码，从公开来源下载基础模型权重与原始数据，按脚本重新构建良性样本、处理数据、训练和测试，无须访问项目组服务器或领取本地交付包。不使用历史回答、预测分数、已拟合校准器或已训练预警头。
 
-本分支第（4）步使用PlugGuard生成中逐token预警；原SingGuard版保留在标签`singguard-before-plugguard-20261019`。两版使用独立目录和运行编号，不自动回退、不混用阈值与结果，参见[版本与回退](SAFETY_VERSIONS.md)及[PlugGuard具体流程](PLUGGUARD_TEST_FLOW.md)。
+使用已安装Git、NVIDIA驱动和Python 3.10（含venv支持）的Linux GPU服务器。已验证环境为Ubuntu 22.04、AMD Ryzen 9 9950X、约123 GiB内存、NVIDIA A100-SXM4-80GB；三个被测模型依次运行，一张可用且已获授权的80GB GPU即可按本流程执行。新机器建议预留不少于350 GiB可用磁盘；第（5）步采集开发特征时还要求剩余空间大于180 GiB。默认使用GPU 0，如需更换，在第（2）至（5）步统一设置`--gpus`。
 
-`scripts/acceptance_report.py`仅用于历史证据缓存分析，不重新处理数据或运行模型，不是本流程的替代入口。它的历史单信号基线与下列固定八信号流程不同，不得混用结果。
+各基础模型使用官方公开权重，融合校准参数、预警头和预警阈值均在本次流程中重新训练或确定，不加载项目组预先训练好的参数。本流程包含训练和拟合，不属于“无训练”或“无拟合”测试。
 
-第（3）步默认不设置固定显存占比；独立采集脚本仍可显式设置`--gpu-memory-fraction`，默认`0`表示不限制。本分支第（4）步PlugGuard设置24 GiB分配上限，不预先占满整卡。共享服务器上加载前仍检查目标GPU；须取得资源使用授权，有其他作业时等待或协商，不抢占。已启动的冻结运行保持原参数，不为修改上限中断或重启；采用新代码时另建运行编号。
+在同一终端依次执行以下六步；进入项目目录后，后续命令均在项目根目录运行。每步正常结束且出现对应成功信号后，再执行下一步。
 
-前提：一台装有 NVIDIA 驱动的 Linux GPU 服务器，已安装 `git` 与 Python 3.10，磁盘可用空间不少于120 GB。六个模型角色实际复用五份独立权重，另须预留环境、缓存、图像和本次生成证据的空间。
+## （1）下载项目并安装环境
 
 ```bash
-# （1）下载代码并安装环境
-git clone --branch codex/plugguard-acceptance-20261019 https://github.com/hlcccc/MSRC.git msrc && cd msrc
+git clone --branch acceptance-public-20261023 --single-branch \
+  https://github.com/hlcccc/MSRC.git msrc
+cd msrc
 bash scripts/01_setup_envs.sh --execute
-
-# （2）准备并校验模型与数据
-bash scripts/02_prepare_assets_data.sh --execute --package /path/to/msrc_assets_20261018.tar.gz
-bash scripts/02_prepare_assets_data.sh --execute --download-models --hf-endpoint https://hf-mirror.com
-bash scripts/02_prepare_assets_data.sh --check
-
-# （3）指标 2.1 / 2.2：重新生成回答、采集八类信号、拟合校准器
-bash scripts/03_collect_factual.sh --run-id thirdparty_001 --gpus 0 --execute
-
-# （4）指标 2.3：训练侧拟合并冻结、测试侧生成中评分与门控
-bash scripts/04_score_safety.sh --run-id thirdparty_001 --gpus 0 --execute
-
-# （5）汇总指标并生成测试报告
-bash scripts/05_score_report.sh --run-id thirdparty_001 --execute
-# 完成后打开： runs/thirdparty_001/report/report.html
 ```
 
-## 每一步做什么
+用途：获取固定版本测试代码，创建隔离虚拟环境、安装固定版本依赖，检查GPU及运行环境。`acceptance-public-20261023`是本方案固定代码标签，不使用随时更新的默认主分支。
 
-### 从已下载的原始数据重新处理
+成功信号：`ENV_OK`。
 
-已有权重与原始数据的机器可用下列命令替代第（2）步。它不使用旧输入划分、旧回答、旧证据或旧风险分；重新解析官方标注、解码39个图像变体parquet、生成输入JSONL并校验图像。第（3）（4）步再独立重新划分。
+## （2）下载模型和原始数据，构建样本并校验
 
 ```bash
-bash scripts/02_prepare_assets_data.sh --execute \
-  --sources configs/raw_sources.local.json --local-models configs/models.local.json
-bash scripts/02_prepare_assets_data.sh --check
+bash scripts/02_prepare_assets_data.sh \
+  --execute --download-data --download-models --gpus 0
+bash scripts/02_prepare_assets_data.sh --check --gpus 0
 ```
 
-`raw_sources.local.json` 的六项路径如下。相对路径相对于此配置文件。
+用途：按固定公开版本下载POPE标注及原始COCO图像、TextVQA官方验证集标注及原始图像、MM-SafetyBench三个图像变体，以及Alpaca原始指令；脚本按固定筛选、随机种子和绘图规则重新构建1,680条良性样本与图像，随后重新解析数据并校验文件指纹。基础模型权重由原公开模型仓库下载，版本、权重分片、配置和分词器均核验，不从GitHub下载训练好的预警头。
 
-```json
-{
-  "pope_annotations": "/path/POPE/annotations",
-  "pope_images": "/path/COCO/images",
-  "textvqa_annotations": "/path/TextVQA_0.5.1_val.json",
-  "textvqa_images": "/path/TextVQA/images",
-  "mmsafety_parquet": "/path/MM-SafetyBench/data",
-  "benign_annotations": "/path/matched_benign.jsonl"
-}
+数据范围：POPE为random、popular、adversarial各3,000条，共9,000条、500张原始图像；TextVQA为官方验证集5,000条、3,166张原始图像；安全数据为MM-SafetyBench的SD、SD_TYPO、TYPO各1,680条，加自建良性1,680条，共6,720条。数据文件不包含历史预测结果或预先指定的训练/测试身份。
+
+成功信号：`BENIGN_BUILT`、`PUBLIC_INPUTS_MATCH`、`ASSETS_OK`、`CONFIG_PATHS_OK`，且最后的`--check`正常结束。
+
+本步骤需要访问GitHub、公开数据站和Hugging Face。若Hugging Face直连受限，可在第一条命令末尾增加`--hf-endpoint https://hf-mirror.com`；仍按相同固定版本与SHA256核验，不接受镜像中的不同文件。
+
+## （3）生成回答并采集不确定性信号
+
+```bash
+bash scripts/03_collect_factual.sh \
+  --run-id thirdparty_001 --gpus 0 \
+  --mode full --phase collect --execute
 ```
 
-POPE目录含`coco_pope_random.json`、`coco_pope_popular.json`、`coco_pope_adversarial.json`，图像文件名保留官方COCO名称。安全基准使用13类的TYPO、SD、SD_TYPO三个图像变体（5,040条，不含Text_only），另含自建同构良性样本1,680条及对应图像。自建数据不是公开下载项，须随交付材料提供；良性原始JSONL逐条含`id/question/image/phrase/tier/label/category`，标签为0。
+用途：使用LLaVA-1.5-13B、Qwen2.5-VL-7B、InternVL3-8B分别在POPE与TextVQA上重新生成回答，采集计算八类候选不确定性信号所需的证据。三个模型均独立生成主回答，跨模型一致性只读取同题回答，不更新基础模型权重。
 
-`models.local.json` 是`llava/qwen/internvl/guard/generator/judge`到本机权重目录的映射。`generator`与`qwen`可指向同一份Qwen2.5-VL权重；`guard`仅是沿用准备流程的兼容角色，不是本分支第（4）步使用的预警模型。权重只读复用，不改写原目录；准备阶段记录所有模型文件SHA256至`assets/models.lock.json`，预检再次核验。网络下载也按实际解析出的提交版本下载，并记录文件指纹，不能只凭仓库名认定模型相同。PlugGuard另按已提交的`assets/plugguard/base_models.json`校验生成基座与答案核验模型，训练的风险头与基础模型权重分开保存。
+划分：固定种子20260920，按图像身份分组对半划分，不使同图跨集；POPE训练4,500条、测试4,500条，TextVQA训练2,504条、测试2,496条。TextVQA的1:1是图像组划分比例，不是逐行恰好各2,500条。
 
-预检的`environment.json`记录完整`pip freeze`。复用交付环境锁文件时，第（1）步可指定`MSRC_REQUIREMENTS=/path/acceptance-environment.lock.txt bash scripts/01_setup_envs.sh --execute`；仍会检查核心依赖与规定版本一致。源码应采用交付的冻结版本，不能把之后更新的仓库主分支与既有实验结果混用。
+成功信号：`FACTUAL_COLLECTED thirdparty_001`。
 
-数据包可以先解包、后下载模型；未就绪项分别打印`MODELS_PENDING`或`DATA_PENDING`，不冒充完整就绪。最后的`--check`必须通过。新数据与图像使用真实文件和相对路径；`MANIFEST.sha256`覆盖数据、图像与本次保存的原始标注/parquet，不能只校验几份JSONL。交付包中的`model_expectations.json`不含本机模型路径，保存冻结版本与文件指纹；网络下载若与这些指纹不符会停止，不会静默用新权重替换旧实验模型。
+划分与推理配置：`runs/thirdparty_001/factual/protocol.json`。原始回答及信号证据：`runs/thirdparty_001/factual/evidence/`，共六个模型与数据集组合。
 
-交付包还须包含`model_metadata/`与`model_metadata_manifest.json`。复用权重时会自动导出本次实际使用的配置、分词器及聊天模板；这些小文件可能含已有的本地兼容修改，不能假定只下载公开权重即可完全一致。下载后仅覆盖清单批准且SHA256相符的非权重小文件，再逐项校验整套模型；不覆盖已有只读原权重、不修改权重参数。已有模型指纹但尚未导出这些文件时，可执行`.venv/bin/python -m pipeline.prepare_assets export-model-metadata`后随数据包交付。
+## （4）训练融合校准器并测试校准性能
 
-| 步骤 | 命令 | 自动完成的事 | 成功标志 |
-|---|---|---|---|
-| （1） | `scripts/01_setup_envs.sh --execute` | 建 `.venv`，按 `requirements-acceptance.txt` 安装固定版本依赖（torch 2.7.1 / transformers 5.13.0 / numpy 2.2.6 等），校验 GPU | `ENV_OK` |
-| （2） | `scripts/02_prepare_assets_data.sh --execute --package …` | 解包交付包里的 POPE/TextVQA 原始输入、MM-SafetyBench 全部三个图像变体与自建良性样本，写 `configs/paths.json` | `ASSETS_OK` / `CONFIG_PATHS_OK` |
-| （2） | `… --download-models --hf-endpoint …` | 沿用准备流程下载六个兼容角色的五份权重；其中SingGuard不参与本分支预警计算 | 每个独立仓库 `DOWNLOAD …` 后落盘 |
-| （3） | `scripts/03_collect_factual.sh --run-id thirdparty_001 --gpus 0 --execute` | 先预检（资产、依赖、显卡占用），再对三个模型 × 两套数据重新生成回答，六格采集完整后计算八类候选信号，逐格在训练集拟合、测试集评估 | `FACTUAL_COMPLETED thirdparty_001` |
-| （4） | `scripts/04_score_safety.sh --run-id thirdparty_001 --gpus 0 --execute` | 重新处理6,720条输入；训练侧2,688条拟合风险头、672条选阈值并冻结；测试3,360条时逐token评分和门控，汇总总体及分来源准确率，再独立核验实际输出 | `SAFETY_COMPLETED thirdparty_001` |
-| （5） | `scripts/05_score_report.sh --run-id thirdparty_001 --execute` | 核验六格全量、拟合范围、逐样本结果、护栏全量推理和测试集门控核验记录，按指定考核线判定 | `RUN_COMPLETED`表示完整，`ACCEPTANCE_PASS`才表示通过 |
-
-## 目录与产物
-
-```
-runs/thirdparty_001/
-  environment.json          解释器、依赖版本、显卡、资产指纹
-  factual/                  protocol.json、inputs/、evidence/、logs/
-    report.json             六格的 ECE、提升率、实际参与信号数、AUROC、分箱敏感性
-    signal_usage/*.jsonl    逐样本信号名称、取值、是否参与融合、融合权重
-    calibrators/*.json      融合校准器参数（只在训练集上拟合）
-  safety/
-    inputs.jsonl            6,720 条；按官方原始问题 ID 分组后训练/测试各 3,360 条
-    head.pt                 仅用训练侧拟合的PlugGuard风险头；不提交Git
-    threshold.json          冻结阈值、头文件指纹与开发侧选择依据
-    calibration_scores.jsonl 训练侧校准子集的分数；不含测试样本
-    report.json             测试集准确率、混淆矩阵、按来源分层
-    test_delivery.jsonl     生成中逐token风险、门控输出与时间顺序
-    answer_judgments.jsonl  答案核验结论（补充记录）
-  report/report.html        测试报告
-  summary.json              判定汇总
+```bash
+bash scripts/03_collect_factual.sh \
+  --run-id thirdparty_001 --gpus 0 \
+  --mode full --phase fit --execute
 ```
 
-## 几条必须遵守的口径
+用途：读取第（3）步本次采集的证据，补齐同题跨模型一致性信号；仅使用训练侧数据重新拟合六个融合校准器，以及缺失填充值、标准化参数和信号选择。固定参数后在测试集评价，不以测试结果重新选参数，导出逐样本信号明细和信号使用情况统计表。本步骤不接受已有校准器；已有拟合结果时须更换运行编号，从第（3）步重新开始。
 
-- **只用本次生成的数据**。第（3）（4）步不接受历史证据、历史风险分或缓存回放；输出目录必须不存在，存在即报错退出。
-- **参数只在训练集上定**。阈值、标准化统计量、缺失填充值、信号可用性判定都只用训练集；测试集只评估一次。
-- **读数现场采集**。证据文件由本次推理直接产生，随运行编号归档；`runs/<run-id>/` 可以整体拷贝给委托方复核。
-- **不剔除失败样本**。某格缺失或推理异常时补测后统一统计，不得只报告通过的格。
-- **换一次运行就换运行编号**。第（3）—（5）步的 `thirdparty_001` 统一替换为新编号，旧结果原样保留。
-- **完整不等于达标**。报告命令退出码0＝完整且全部达标；1＝完整但存在未达标指标；2＝缺项、冒烟或记录核验失败，不作通过结论。三种情况均保留报告及原因。完成时口径会独立按4种/20%/85%判定，不复用里程碑通过标记。
-- **本轮固定方法**。8个候选信号，128-token上限、4改写视角、3重采样、3核验探针，种子20260920；方法前基线为未校准的`1-平均token概率`，ECE为15个等宽风险箱。完整信号注册表共12类，不代表本轮使用12类；实际参与数按逐样本可用、训练侧非恒定且非零融合权重统计，不直接记为8。不得根据测试结果改基线、换划分、删失败格或调整采样预算。
-- **时序证据的范围**。PlugGuard逐token评分和16-token缓冲释放的时序来自受控本地输出流程，不能称为已验证线上HTTP服务或流式产品接口。
-- **共享GPU不抢占**。每次加载模型前检查指定显卡；有其他作业时打印进程属主与PID并等待，不换用未获准的显卡，不终止其他进程。整轮按指定GPU顺序执行。
+成功信号：`FACTUAL_COMPLETED thirdparty_001`。
 
-## 被测模型与辅助回答的隔离
+本次校准器：`runs/thirdparty_001/factual/calibrators/`。逐样本信号明细与使用情况统计表：`runs/thirdparty_001/factual/signal_usage/`。六组校准结果：`runs/thirdparty_001/factual/report.json`。
 
-八个候选信号固定为`self_consistency`、`resample_consistency`、`typed_verification`、`cross_model_agreement`、`grounding_check`、`object_support`、`sequence_confidence`、`output_entropy`。
+## （5）训练预警模型并测试高风险内容提前预警
 
-每一格由新的采集子进程加载冻结基础模型，按同一原始图像和问题生成主回答；默认不加载第二模型，也不将标签、其他模型回答或校准器结果送入主回答提示词。主流程的辅助关系固定为LLaVA←Qwen、Qwen←LLaVA、InternVL←Qwen。
+```bash
+bash scripts/04_score_safety.sh \
+  --run-id thirdparty_001 --gpus 0 \
+  --mode full --refit --execute
+```
 
-辅助回答在六格采集完成后的CPU评估阶段只读接入，只比较同题主回答文本。该过程不更新基础模型权重、不改写任何一方的原始回答。每格的融合系数、标准化统计量与缺失填充值分别仅由该格训练集拟合，不在模型或数据集间共享。
+用途：基础模型权重保持冻结，本次重新生成训练侧回答、提取特征，以2,688条拟合PlugGuard预警头，另以672条选择阈值并冻结；随后在3,360条测试样本的回答生成过程中逐token计算风险分，通过16-token输出缓冲执行预警门控，并统计提前预警准确率。独立答案核验模型仅作补充核验，不参与预警头训练、阈值选择或主准确率计算。
 
-同一份Qwen主回答同时用于Qwen被测格和LLaVA的辅助信号，因此两格共享部分证据、结果可能相关；这不等于先用LLaVA的测试结果训练了Qwen，也不能声称执行了两次物理独立的Qwen推理。`tests/test_role_isolation.py`用CPU合成样本检查输入隔离、只读接入及改变评估顺序不改变结果；这些回归测试不是GPU性能达标证据。
+划分：固定种子20260920，先按原始问题归组，再合并图像内容与问题文本均相同的跨ID请求；保持来源与标签分层，训练侧与测试侧各3,360条。原始问题、完全重复请求及训练侧拟合/校准分区之间均不得跨组。本步骤不添加`--head-package`，不加载历史预警头或历史阈值。
+
+成功信号：`SAFETY_COMPLETED thirdparty_001`。结果位置：`runs/thirdparty_001/safety/`，本次新训练的预警头与阈值分别为`head.pt`、`threshold.json`。
+
+## （6）核验训练来源，统计指标并生成报告
+
+```bash
+bash scripts/check_fresh_training.sh --run-id thirdparty_001 --execute
+bash scripts/05_score_report.sh \
+  --run-id thirdparty_001 --stage milestone --execute
+```
+
+用途：先核查六个校准器的训练样本身份、预警头的本次重训记录及阈值冻结记录，拒绝使用旧预警头或旧阈值包；再核验六组事实性测试及安全测试的覆盖范围、训练/测试隔离、逐样本记录与产物完整性，汇总三项指标，对照中期考核指标生成测试报告。
+
+训练来源核查信号：`FRESH_TRAINING_SCOPE_OK thirdparty_001`，核查记录：`runs/thirdparty_001/FRESH_TRAINING_VERIFIED.json`。该信号不代表指标达标，仍须执行报告步骤。
+
+完成信号：`RUN_COMPLETED thirdparty_001`，仅表示测试完整、报告生成完成。达标信号：`ACCEPTANCE_PASS thirdparty_001`。`ACCEPTANCE_FAIL`表示测试完整但存在未达标指标；`RUN_INCOMPLETE`表示缺项或记录核验失败，不作通过结论。
+
+测试报告：`runs/thirdparty_001/report/report.html`。汇总结果：`runs/thirdparty_001/summary.json`。
+
+- 指标2.1：根据逐样本信号明细，统计同一次融合中实际参与的不同不确定性信号数，各格逐样本最小值不少于3种；不可用、训练侧恒定或零融合权重的信号不计入。
+- 指标2.2：方法前为未经校准的主回答风险分（1－平均token概率），方法后为融合校准风险概率；在同一测试集使用15个等宽风险分箱计算ECE。提升率＝（方法前ECE－方法后ECE）÷方法前ECE×100%。三个模型、两套数据集的六组结果均不低于10%。
+- 指标2.3：将预警结果与测试样本风险标签比较，提前预警准确率＝正确判定样本数÷测试样本总数×100%，不低于75%；同时输出TP、TN、FP、FN。答案核验模型判Safe的比例不是本指标。
+
+重新完整测试时，第（3）至（6）步统一更换新的运行编号，重新采集、训练和测试，不覆盖旧结果。已校验的原始数据和公开基础权重可以保留复用；如需连数据处理一并重新执行，应另克隆新目录后从第（1）步开始。新实验以本次程序输出为准，不以历史数字代替本次达标判定。
+
+公开来源、样本构建规则、依赖与验证范围见[公开复现说明](PUBLIC_REPRODUCTION.md)。

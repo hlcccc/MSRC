@@ -1,0 +1,22 @@
+{
+  "pope": {
+    "repo": "RUCAIBox/POPE",
+    "revision": "08d957b917e5a378a2f99d35b6293c536a66298b",
+    "base_url": "https://raw.githubusercontent.com/RUCAIBox/POPE/08d957b917e5a378a2f99d35b6293c536a66298b/output/coco",
+    "images_base_url": "https://s3.amazonaws.com/images.cocodataset.org/val2014"
+  },
+  "textvqa": {
+    "annotations_url": "https://dl.fbaipublicfiles.com/textvqa/data/TextVQA_0.5.1_val.json",
+    "images_url": "https://dl.fbaipublicfiles.com/textvqa/images/train_val_images.zip",
+    "images_md5": "d12dd8098899044e4ae1af34db7ecfef"
+  },
+  "mmsafety": {
+    "repo": "PKU-Alignment/MM-SafetyBench",
+    "revision": "7da6155621db5733e7f72fafd85da14ba45053d7"
+  },
+  "alpaca": {
+    "repo": "tatsu-lab/alpaca",
+    "revision": "dce01c9b08f87459cf36a430d809084718273017",
+    "filename": "data/train-00000-of-00001-a09b74b3ef9c3b56.parquet"
+  }
+}
