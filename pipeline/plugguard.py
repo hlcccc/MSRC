@@ -624,7 +624,11 @@ def load_checkpoint(package, rows):
     if origin.get('split_version') != SPLIT_VERSION:
         raise ValueError('Frozen head uses obsolete safety split')
     if origin.get('split_source_sha256') != source_sha256():
-        raise ValueError('Frozen head split implementation differs')
+        split_file = PROJECT / 'pipeline/safety_split.py'
+        normalized = hashlib.sha256(split_file.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+        if (not origin.get('export_verified_line_ending_only_split_source')
+                or origin['split_source_sha256'] != normalized):
+            raise ValueError('Frozen head split implementation differs')
     assert sha(package / 'head.pt') == state['head_sha256']
     assert origin['upstream_commit'] == COMMIT
     assert origin['native_generator_config_sha256'] == sha(MODEL / 'generation_config.json')

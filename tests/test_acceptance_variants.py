@@ -133,6 +133,16 @@ def test_parameter_identity_is_portable_but_image_content_is_bound(tmp_path):
     assert parameters.identity(a) != parameters.identity(b)
 
 
+def test_code_fingerprint_accepts_only_line_ending_differences(tmp_path):
+    a, b = tmp_path / 'linux.py', tmp_path / 'windows.py'
+    a.write_bytes(b'x = 1\ny = 2\n')
+    b.write_bytes(b'x = 1\r\ny = 2\r\n')
+    assert common.sha(a) != common.sha(b)
+    assert parameters.text_sha256(a) == parameters.text_sha256(b)
+    b.write_bytes(b'x = 1\r\ny = 3\r\n')
+    assert parameters.text_sha256(a) != parameters.text_sha256(b)
+
+
 @pytest.mark.parametrize('kind', ['symlink', 'traversal', 'prediction'])
 def test_fitted_archive_refuses_extra_unsafe_or_test_prediction_members(tmp_path, monkeypatch, kind):
     monkeypatch.setattr(common, 'ROOT', tmp_path)

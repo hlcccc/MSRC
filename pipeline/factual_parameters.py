@@ -20,6 +20,16 @@ METHOD_KEYS = ('seed', 'max_new_tokens', 'k', 'views', 'probes',
                'textvqa_labels', 'l2', 'bins', 'missing')
 
 
+def text_sha256(path):
+    """Platform line endings may differ; all other source bytes must be identical."""
+    return hashlib.sha256(Path(path).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+
+
+def source_fingerprints():
+    from pipeline.factual import SOURCE, _source_files
+    return {str(p.relative_to(SOURCE)): text_sha256(p) for p in _source_files()}
+
+
 def identity(rows):
     """Ignore installation paths, but bind every input, label and split to image bytes."""
     images, values = {}, []
@@ -116,15 +126,15 @@ def validate_state(state, signals, train_ids):
 
 
 def load_package(path, out, protocol):
-    from pipeline.factual import MODELS, SIGNALS, SOURCE, _source_files
+    from pipeline.factual import MODELS, SIGNALS, SOURCE
     package = json.loads(Path(path).read_text(encoding='utf-8'))
     if package.get('format') != FORMAT:
         raise ValueError('unknown fitted factual parameter format')
     if package['method'] != {k: protocol[k] for k in METHOD_KEYS}:
         raise ValueError('fitted parameters use different inference/calibration settings')
-    if package['sources'] != {str(p.relative_to(SOURCE)): sha(p) for p in _source_files()}:
+    if package['sources'] != source_fingerprints():
         raise ValueError('fitted parameters use different signal/model/scoring source')
-    if package['models_recipe_sha256'] != sha(SOURCE / 'resources/reproduction/models.json'):
+    if package['models_recipe_sha256'] != text_sha256(SOURCE / 'resources/reproduction/models.json'):
         raise ValueError('fitted parameters use different public model recipe')
     if set(package['states']) != {m + '_' + d for m in MODELS for d in ('pope', 'textvqa')}:
         raise ValueError('all six fitted factual states required')
@@ -140,13 +150,13 @@ def load_package(path, out, protocol):
 
 def export(source, destination):
     """Publisher operation: retain six fitted states and derive thresholds on dev only."""
-    from pipeline.factual import MODELS, SIGNALS, SOURCE, _source_files
+    from pipeline.factual import MODELS, SIGNALS, SOURCE
     source, destination = Path(source), inside(destination)
     if destination.exists():
         raise ValueError('new parameter file required')
     protocol = json.loads((source / 'protocol.json').read_text(encoding='utf-8'))
     report = json.loads((source / 'report.json').read_text(encoding='utf-8'))
-    sources = {str(p.relative_to(SOURCE)): sha(p) for p in _source_files()}
+    sources = source_fingerprints()
     if (protocol['mode'] != 'full' or report['status'] != 'FULL_FACTUAL_FLOW_COMPLETE'
             or set(protocol['source_hashes']) != set(sources) or report['old_evidence_used'] is not False):
         raise ValueError('compatible full source run required for parameter export')
@@ -174,7 +184,7 @@ def export(source, destination):
                   origin_protocol_sha256=sha(source / 'protocol.json'),
                   verified_line_ending_only_differences=normalized,
                   method={k: protocol[k] for k in METHOD_KEYS}, sources=sources,
-                  models_recipe_sha256=sha(SOURCE / 'resources/reproduction/models.json'),
+                  models_recipe_sha256=text_sha256(SOURCE / 'resources/reproduction/models.json'),
                   datasets={d: identity(read_rows(source / 'inputs' / (d + '.jsonl')))
                             for d in ('pope', 'textvqa')}, states=states,
                   contains_test_predictions=False, test_used_for_fitting_or_selection=False)
