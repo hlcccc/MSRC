@@ -628,7 +628,9 @@ def load_checkpoint(package, rows):
     assert sha(package / 'head.pt') == state['head_sha256']
     assert origin['upstream_commit'] == COMMIT
     assert origin['native_generator_config_sha256'] == sha(MODEL / 'generation_config.json')
-    training_inputs = load_rows(package / 'training_inputs.jsonl')
+    # Exported provenance uses opaque image-hash keys, not local dataset paths.
+    training_inputs = [json.loads(line) for line in (package / 'training_inputs.jsonl').read_text(
+        encoding='utf-8').splitlines() if line.strip()]
     training_hashes = json.loads((package / 'input_hashes.json').read_text(encoding='utf-8'))['images']
     assert sha(package / 'training_inputs.jsonl') == origin['source_inputs_sha256']
     assert checkpoint_identity(training_inputs, training_hashes) == checkpoint_identity(rows, image_hashes), \
@@ -640,6 +642,7 @@ def load_checkpoint(package, rows):
         shutil.copyfile(package / name, destination(ROOT / name))
     assert state['test_used_for_fitting_or_selection'] is False
     state['origin_frozen_before_test_ns'] = state['frozen_before_test_ns']
+    state['origin_threshold_sha256'] = sha(package / 'threshold.json')
     state['frozen_before_test_ns'] = time.time_ns()
     state['checkpoint_reused'] = True
     save('threshold.json', state)

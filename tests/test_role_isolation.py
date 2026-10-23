@@ -105,10 +105,10 @@ def test_posthoc_attachment_does_not_mutate_primary_or_donor():
 
 
 def test_evaluator_reads_donor_text_not_donor_labels_or_scores():
-    evaluator = function('pipeline/factual.py', 'evaluate')
+    evaluator = function('pipeline/factual_parameters.py', 'features')
     fields = {ast.literal_eval(node.slice) for node in ast.walk(evaluator)
               if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
-              and node.value.id == 'd' and isinstance(node.slice, ast.Constant)}
+              and node.value.id == 'donor' and isinstance(node.slice, ast.Constant)}
     assert fields == {'id', 'question', 'answer'}
     assert 'from msrc.providers' not in ast.unparse(evaluator)
 

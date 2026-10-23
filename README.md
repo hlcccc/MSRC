@@ -11,6 +11,13 @@
 > downloads public originals, rebuilds the benign inputs from a fixed recipe,
 > and trains all acceptance heads/calibrators afresh, without a local delivery package.
 
+**Four acceptance variants:** [procedures and parameter modes](docs/ACCEPTANCE_FOUR_VARIANTS.md).
+Each includes indicators 2.1, 2.2 and 2.3. In the project's terminology, the
+"no-fit" variant means no fitted state is supplied: the tester fits onsite.
+The "fitted" variant loads published project parameters but still performs new
+inference and testing. Only the latter downloads the hash-pinned Release asset;
+public base-model weights and historical test predictions are not uploaded.
+
 **Twelve candidate signals, seven external and five internal, mapped to a
 calibrated hallucination-risk score from a single input.**
 

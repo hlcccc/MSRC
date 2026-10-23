@@ -58,15 +58,18 @@ def fmt(value, digits=4, percent=False):
     return str(value)
 
 
-def build(run: Path, stage: str) -> dict:
+def build(run: Path, stage: str, variant=None) -> dict:
+    from pipeline.variant_provenance import VARIANTS
+    warning_domain = VARIANTS[variant][0] if variant else 'safety'
     limits = STAGES[stage]
     factual = load_json(run / "factual" / "report.json")
-    safety = load_json(run / "safety" / "report.json")
+    safety = load_json(run / ("safety" if warning_domain == 'safety' else 'factual_warning') / "report.json")
     if factual is None and safety is None:
         raise SystemExit("nothing to report: %s holds neither factual nor safety output" % run)
 
     summary = {"run_id": run.name, "stage": stage, "generated": datetime.now().isoformat(timespec="seconds"),
-               "thresholds": limits, "signals": {}, "files": {}}
+               "thresholds": limits, "signals": {}, "files": {},
+               "variant": variant, "warning_domain": warning_domain}
     parts = ["<h1>MSRC 验收测试报告</h1>",
              "<p class=meta>运行编号 %s ｜ 判定口径 %s（信号≥%d 种、校准提升≥%.0f%%、预警准确率≥%.0f%%）"
              " ｜ 生成时间 %s</p>" % (html.escape(run.name), limits["label"], limits["signals"],
@@ -76,7 +79,15 @@ def build(run: Path, stage: str) -> dict:
     if smoke:
         parts.append("<p class=warn>本报告来自冒烟验证（少量样本），只用于检查流程能否跑通，"
                      "<b>不作为指标达标结论</b>。正式验收须以 --mode full 重跑并生成新的运行编号。</p>")
-    reasons = check(run, factual, safety)
+    reasons = check(run, factual, safety, warning_domain)
+    if variant:
+        from pipeline.variant_provenance import audit
+        try:
+            receipt = audit(run, variant)
+            save(run / 'VARIANT_VERIFIED.json', receipt)
+            summary['parameter_provenance'] = receipt
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+            reasons.append('variant provenance: ' + str(exc))
     summary['complete'] = not reasons
     summary['incomplete_reasons'] = reasons
     if reasons:
@@ -105,7 +116,21 @@ def build(run: Path, stage: str) -> dict:
                      "<code>factual/protocol.json</code>。</p>")
         summary["files"]["factual"] = sorted(str(p.relative_to(run)) for p in (run / "factual").rglob("*.json"))
 
-    if safety:
+    if safety and warning_domain == 'factual':
+        summary['signals']['factual_warning'] = dict(
+            cells=len(safety.get('cells', [])), minimum_accuracy=safety.get('minimum_accuracy'),
+            passing=(len(safety.get('cells', [])) == 6
+                     and safety.get('minimum_accuracy', 0) * 100 >= limits['warning']) if not reasons else None)
+        parts.append('<h2>指标2.3 事实性回答风险预警</h2><p>标签为回答错误/事实性风险，不是内容有害性。'
+                     '先完成回答及信号提取，再在受控本地输出前判定；不宣称逐token内容安全预警。</p>')
+        parts.append(html_table(['组合', '测试样本', '冻结阈值', 'TP', 'TN', 'FP', 'FN', '准确率', '全放行基线'],
+                     [[r['cell'], r['n'], r['threshold'], r['TP'], r['TN'], r['FP'], r['FN'],
+                       fmt(r['accuracy'], percent=True), fmt(r.get('never_alarm'), percent=True)]
+                      for r in safety.get('cells', [])]))
+        summary['files']['factual_warning'] = sorted(str(p.relative_to(run)) for p in
+                                                     (run / 'factual_warning').rglob('*.json'))
+
+    if safety and warning_domain == 'safety':
         primary = safety.get("primary", {})
         summary["signals"]["safety"] = dict(
             backend=safety.get('backend', 'singguard'),
@@ -152,12 +177,16 @@ def build(run: Path, stage: str) -> dict:
         verdicts.append(("指标2.2 校准提升（最差格）",
                          fmt(summary["signals"]["factual"]["min_gain"], percent=True),
                          "≥ %.0f%%" % limits["calibration"]))
-    if safety:
+    if safety and warning_domain == 'safety':
         verdicts.append(("指标2.3 预警准确率", fmt(primary.get("accuracy"), percent=True),
                          "≥ %.0f%%" % limits["warning"]))
+    elif safety:
+        verdicts.append(('指标2.3 事实性预警准确率（最差格）',
+                         fmt(safety.get('minimum_accuracy'), percent=True), '≥ %.0f%%' % limits['warning']))
     parts.append(html_table(["指标", "本次结果", "考核要求"], [[a, str(b), c] for a, b, c in verdicts]))
     passed = (summary['signals'].get('factual', {}).get('acceptance_conclusion') is True
-              and summary['signals'].get('safety', {}).get('passing') is True)
+              and summary['signals'].get('safety' if warning_domain == 'safety' else 'factual_warning',
+                                          {}).get('passing') is True)
     summary['acceptance_pass'] = passed if summary['complete'] else None
     summary['verdict'] = ('PASS' if passed else 'FAIL') if summary['complete'] else 'INCOMPLETE'
     parts.append('<p><b>判定：%s</b></p>' %
@@ -165,7 +194,7 @@ def build(run: Path, stage: str) -> dict:
                   'INCOMPLETE': '测试不完整，不能作达标结论'}[summary['verdict']])
     parts.append("<p class=note>口径说明：指标2.2 的方法前基线为主答案平均 token 概率换算的风险分（未经"
                  "任何校准），方法后为融合校准输出的风险概率；两者在同一测试样本、同一 15 个等宽箱上计算"
-                 " ECE。指标2.3 以数据集输入标签为准，答案核验模型的判定只作补充记录。</p>")
+                 " ECE。指标2.3 的风险标签、方法与时序范围按本报告所选版本分别说明，不混用事实性与内容安全结论。</p>")
     parts.append("<style>body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;margin:32px;line-height:1.6;color:#222}"
                  "table{border-collapse:collapse;margin:12px 0 24px}"
                  "th,td{border:1px solid #ccc;padding:6px 10px;font-size:14px}th{background:#f2f4f8}"
@@ -186,11 +215,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--stage", choices=sorted(STAGES), default="milestone")
+    from pipeline.variant_provenance import VARIANTS
+    ap.add_argument('--variant', choices=sorted(VARIANTS))
     args = ap.parse_args()
     run = inside(runs_dir() / args.run_id)
     if not run.is_dir():
         raise SystemExit("no such run: %s" % run)
-    summary = build(run, args.stage)
+    summary = build(run, args.stage, args.variant)
     print(json.dumps(summary["signals"], indent=2, ensure_ascii=False))
     print("REPORT_WRITTEN %s" % (run / summary["report_html"]))
     if not summary['complete']:

@@ -1,0 +1,14 @@
+{
+  "format": "msrc-provided-parameters-release-v1",
+  "release": "acceptance-parameters-20261023",
+  "url": "https://github.com/hlcccc/MSRC/releases/download/acceptance-parameters-20261023/parameters-20261023.tar.gz",
+  "sha256": "e94fa8685dd41db52039ba89a64f879681f9645fab2cc02a8c96779363d05a0a",
+  "bytes": 68915087,
+  "manifest_sha256": "14e50df5bb64c3041b83ca210b88c5edce65ae6403d946f84de1eb6224596c62",
+  "factual_parameters_sha256": "34522dd2e26a787a3acc2c8600935dc991efa37dfdd01b6ad12ea7ec0d8ced8c",
+  "safety_head_sha256": "9540ac28c85fef9dc951e073df0f255ee53be8f2aab889338f12a2405d911c40",
+  "safety_threshold_sha256": "9b8bc88995ffded45660d0ac16bf9874bd99a198a9b9209c4f751c98fbb90519",
+  "safety_threshold": 0.9725,
+  "contains_base_model_weights": false,
+  "contains_test_predictions": false
+}

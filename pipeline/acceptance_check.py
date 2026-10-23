@@ -43,6 +43,18 @@ def factual_check(root, report):
             'all six distinct model/dataset cells are required')
     protocol = load(root / 'protocol.json')
     require(protocol['mode'] == 'full' and protocol['bins'] == 15, 'full 15-bin protocol required')
+    if 'parameter_mode' in protocol:
+        require(protocol.get('parameter_helper_sha256') == sha(Path(__file__).with_name('factual_parameters.py')),
+                'factual evaluation/parameter helper changed')
+    package = None
+    if protocol.get('parameter_mode') == 'provided':
+        from pipeline.factual_parameters import load_package
+        require(sha(root / 'provided_parameters.json') == protocol['parameters_sha256'],
+                'provided factual parameters changed')
+        package = load_package(root / 'provided_parameters.json', root, protocol)
+        require(report.get('parameter_mode') == 'provided'
+                and report.get('parameters_sha256') == protocol['parameters_sha256'],
+                'report omitted the provided-parameter provenance')
     for cell in cells:
         name = cell['cell']
         dataset = name.partition('_')[2]
@@ -64,6 +76,8 @@ def factual_check(root, report):
         evidence = read_rows(evidence_path)
         require([r['id'] for r in evidence] == [r['id'] for r in raw], 'fresh evidence is incomplete/reordered')
         state = load(root / 'calibrators' / (name + '.json'))
+        if package:
+            require(state == package['states'][name], 'provided factual state was refitted/changed')
         require(state['fitting_scope'] == 'development only' and state['converged'] is True,
                 'calibrator must converge using development only')
         require(state['train_ids'] == [r['id'] for r, d in zip(raw, dev) if d],
@@ -208,9 +222,19 @@ def safety_check(root, report):
             'delivery used a different operating point or score file')
 
 
-def check(run, factual, safety):
+def check(run, factual, safety, warning_domain='safety'):
     reasons = []
-    for name, report, checker in [('factual', factual, factual_check), ('safety', safety, safety_check)]:
+    checks = [('factual', factual, factual_check)]
+    if warning_domain == 'safety':
+        checks.append(('safety', safety, safety_check))
+    elif warning_domain == 'factual':
+        def warning_check(root, report):
+            from pipeline.factual_warning import audit
+            require(report == audit(root, run / 'factual'), 'factual warning report differs from fresh decisions')
+        checks.append(('factual_warning', safety, warning_check))
+    else:
+        raise ValueError('unknown warning domain')
+    for name, report, checker in checks:
         if report is None:
             reasons.append('%s: missing report' % name)
             continue

@@ -2,9 +2,9 @@
 from __future__ import annotations
 import argparse
 import csv
-import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -54,7 +54,7 @@ def bin_stats(y,p,n=15):
             for i in range(n)]
 
 
-def prepare(out, mode):
+def prepare(out, mode, parameters=None):
     import numpy as np
     from evaluation.groups import image_group_id
     from evaluation.split import grouped_split
@@ -69,7 +69,9 @@ def prepare(out, mode):
                     l2=.05, bins=15, missing='development available-value mean',
                     scope='full acceptance' if mode=='full' else 'engineering smoke; NOT full acceptance',
                     source_hashes={str(p.relative_to(SOURCE)): sha(p) for p in _source_files()},
-                    script_sha256=sha(__file__), created_ns=time.time_ns())
+                    script_sha256=sha(__file__), created_ns=time.time_ns(),
+                    parameter_helper_sha256=sha(Path(__file__).with_name('factual_parameters.py')),
+                    parameter_mode='provided' if parameters else 'fresh_fit')
     inputs_hashes = {}
     for dataset, expected in [('pope',9000),('textvqa',5000)]:
         rows = read_rows(INPUTS / (dataset+'.jsonl'))
@@ -101,6 +103,13 @@ def prepare(out, mode):
                                      dev=sum(r['acceptance_split']=='dev' for r in chosen),
                                      test=sum(r['acceptance_split']=='test' for r in chosen))
     protocol['inputs'] = inputs_hashes
+    if parameters:
+        from pipeline.factual_parameters import load_package
+        parameters = readable(parameters)
+        load_package(parameters, out, protocol)
+        shutil.copyfile(parameters, inside(out/'provided_parameters.json'))
+        protocol['parameters_sha256'] = sha(out/'provided_parameters.json')
+        protocol['parameters_frozen_ns'] = time.time_ns()
     save(out/'protocol.json',protocol)
     print('FACTUAL_PREPARED '+mode, flush=True)
 
@@ -133,69 +142,51 @@ def collect(out):
 
 def evaluate(out):
     import numpy as np
-    from msrc.signals import Evidence, build_report
     from msrc.model import RiskCalibrator
     from evaluation.metrics import auroc
-    spec = importlib.util.spec_from_file_location('official_mmf',SOURCE/'references/m4c_evaluator.py')
-    mmf = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mmf)
-    official = mmf.TextVQAAccuracyEvaluator()
+    from pipeline.factual_parameters import features, load_package, predict, warning_threshold
     protocol = json.loads((out/'protocol.json').read_text(encoding='utf-8'))
+    package = None
+    if protocol.get('parameter_mode') == 'provided':
+        if sha(out/'provided_parameters.json') != protocol['parameters_sha256']:
+            raise ValueError('provided parameters changed after preparation')
+        package = load_package(out/'provided_parameters.json', out, protocol)
     results = []
     for family in MODELS:
         for dataset in ('pope','textvqa'):
-            raw = read_rows(out/'inputs'/(dataset+'.jsonl'))
-            rows = read_rows(out/'evidence'/(family+'_'+dataset+'.jsonl'))
-            donors = read_rows(out/'evidence'/(DONORS[family]+'_'+dataset+'.jsonl'))
-            if [r['id'] for r in rows] != [r['id'] for r in raw] or len(donors)!=len(rows):
-                raise ValueError('incomplete or reordered fresh evidence')
-            readings = []
-            labels = []
-            for r,d in zip(rows,donors):
-                if r['id']!=d['id'] or r['question']!=d['question']:
-                    raise ValueError('donor is not the same sample/question')
-                evidence = Evidence.from_dict(r['evidence'])
-                from msrc.types import Sample
-                evidence.cross_model = [Sample(text=d['answer'],meta={
-                    'fresh_donor':DONORS[family], 'source_id':d['id']})]
-                readings.append({s.name:s for s in build_report(evidence).signals})
-                if dataset=='textvqa':
-                    if len(r['gold_answers']) != 10:
-                        raise ValueError('ten official answers required')
-                    soft = official._compute_answer_scores(r['gold_answers']).get(
-                        official.answer_processor(r['answer']),0.)
-                    labels.append(int(soft<.5))
-                else:
-                    labels.append(int(r['label']))
-            x = np.asarray([[v[n].risk for n in SIGNALS] for v in readings])
-            a = np.asarray([[v[n].available for n in SIGNALS] for v in readings])
-            y = np.asarray(labels)
-            dev = np.asarray([r['acceptance_split']=='dev' for r in raw])
+            raw, rows, readings, x, a, y, dev = features(out, family, dataset)
             test = ~dev
-            fill = np.asarray([x[dev & a[:,j],j].mean() if a[dev,j].any() else 0.
-                               for j in range(len(SIGNALS))])
-            x = np.where(a,x,fill)
-            live = np.asarray([a[dev,j].any() and
-                               np.ptp(x[dev & a[:,j],j])>1e-12 for j in range(len(SIGNALS))])
-            if not live.any():
-                raise ValueError('no varying available development features')
-            fit = RiskCalibrator(l2=.05).fit(x[dev][:,live],y[dev])
-            if not fit.success_:
-                raise ValueError('calibrator failed to converge')
-            score = fit.predict_proba(x[test][:,live])
+            cell = family+'_'+dataset
+            if package:
+                model_state = package['states'][cell]
+                fill, live = np.asarray(model_state['fill']), np.asarray(model_state['live'], dtype=bool)
+                score = predict(model_state, x[test], a[test])
+                x = np.where(a, x, fill)
+            else:
+                fill = np.asarray([x[dev & a[:,j],j].mean() if a[dev,j].any() else 0.
+                                   for j in range(len(SIGNALS))])
+                x = np.where(a,x,fill)
+                live = np.asarray([a[dev,j].any() and
+                                   np.ptp(x[dev & a[:,j],j])>1e-12 for j in range(len(SIGNALS))])
+                if not live.any():
+                    raise ValueError('no varying available development features')
+                fit = RiskCalibrator(l2=.05).fit(x[dev][:,live],y[dev])
+                if not fit.success_:
+                    raise ValueError('calibrator failed to converge')
+                score = fit.predict_proba(x[test][:,live])
+                model_state = dict(signals=SIGNALS, live=live.tolist(),fill=fill.tolist(),
+                                   coef=fit.coef_.tolist(), mean=fit.mean_.tolist(),
+                                   std=fit.std_.tolist(), train_ids=[r['id'] for r,d in zip(raw,dev) if d],
+                                   converged=True, iterations=fit.n_iter_,gradient=fit.grad_norm_,
+                                   fitting_scope='development only',
+                                   warning_threshold=warning_threshold(fit.predict_proba(x[dev][:,live]),y[dev]))
             baseline_index = SIGNALS.index('sequence_confidence')
             if not a[test,baseline_index].all():
                 raise ValueError('raw token-confidence baseline unavailable')
             before = ece(y[test],x[test,baseline_index])
             after = ece(y[test],score)
             weights = np.zeros(len(SIGNALS))
-            weights[live] = fit.coef_[1:]
-            cell = family+'_'+dataset
-            model_state = dict(signals=SIGNALS, live=live.tolist(),fill=fill.tolist(),
-                               coef=fit.coef_.tolist(), mean=fit.mean_.tolist(),
-                               std=fit.std_.tolist(), train_ids=[r['id'] for r,d in zip(raw,dev) if d],
-                               converged=True, iterations=fit.n_iter_,gradient=fit.grad_norm_,
-                               fitting_scope='development only')
+            weights[live] = model_state['coef'][1:]
             save(out/'calibrators'/(cell+'.json'),model_state)
             details = inside(out/'signal_usage'/(cell+'.jsonl'))
             details.parent.mkdir(exist_ok=True)
@@ -244,6 +235,8 @@ def evaluate(out):
     full = protocol['mode']=='full'
     report = dict(status='FULL_FACTUAL_FLOW_COMPLETE' if full else 'SMOKE_ONLY_NOT_FULL_ACCEPTANCE',
                   mode=protocol['mode'],cells=results,old_evidence_used=False,
+                  parameter_mode=protocol.get('parameter_mode','fresh_fit'),
+                  parameters_sha256=protocol.get('parameters_sha256'),
                   acceptance_conclusion=all(r['calibration_pass'] and r['signals_pass'] for r in results) if full else None)
     save(out/'report.json',report)
     with inside(out/'summary.csv').open('x',encoding='utf-8-sig',newline='') as f:
@@ -259,6 +252,7 @@ def main():
     p.add_argument('--out',type=Path,required=True)
     p.add_argument('--mode',choices=['full','smoke'],default='full')
     p.add_argument('--phase',choices=['prepare','collect','evaluate','run'],default='run')
+    p.add_argument('--parameters',type=Path,help='provided fitted factual parameters; never refit')
     args=p.parse_args()
     initialize()
     select_device()
@@ -267,11 +261,15 @@ def main():
     out=inside(args.out)
     if args.phase in ('prepare','run'):
         out.mkdir(parents=True,exist_ok=False)
-        prepare(out,args.mode)
+        prepare(out,args.mode,args.parameters)
     else:
+        if args.parameters:
+            p.error('--parameters is set only during prepare/run; later phases use the frozen copy')
         protocol=json.loads((out/'protocol.json').read_text(encoding='utf-8'))
         if protocol['mode']!=args.mode or protocol['script_sha256']!=sha(__file__):
             raise ValueError('frozen run protocol mismatch')
+        if protocol.get('parameter_helper_sha256') != sha(Path(__file__).with_name('factual_parameters.py')):
+            raise ValueError('frozen factual evaluation/parameter helper changed')
         for name,digest in protocol['source_hashes'].items():
             if sha(SOURCE/name)!=digest:
                 raise ValueError('collection source changed after preparation')

@@ -31,6 +31,8 @@ def audit(run):
     factual, safety = run / 'factual', run / 'safety'
     report = load(factual / 'report.json')
     protocol = load(factual / 'protocol.json')
+    require(protocol.get('parameter_mode', 'fresh_fit') == 'fresh_fit',
+            'provided factual parameters are not from-scratch fitting')
     require(report.get('status') == 'FULL_FACTUAL_FLOW_COMPLETE'
             and report.get('mode') == protocol.get('mode') == 'full'
             and report.get('old_evidence_used') is False,
