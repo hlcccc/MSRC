@@ -103,6 +103,13 @@ def prepare(out, mode, parameters=None):
                                      dev=sum(r['acceptance_split']=='dev' for r in chosen),
                                      test=sum(r['acceptance_split']=='test' for r in chosen))
     protocol['inputs'] = inputs_hashes
+    from pipeline.gpu_sharing import load_shared_policy
+    sharing = load_shared_policy(workload='factual')
+    if sharing:
+        shutil.copyfile(sharing['source_path'], inside(out/'shared_gpu_policy.json'))
+        protocol.update(shared_gpu_execution=True,
+                        shared_gpu_policy_sha256=sha(out/'shared_gpu_policy.json'),
+                        gpu_resource_source_sha256=sha(SOURCE/'pipeline/gpu_sharing.py'))
     if parameters:
         from pipeline.factual_parameters import load_package
         parameters = readable(parameters)
@@ -116,9 +123,10 @@ def prepare(out, mode, parameters=None):
 
 def collect(out):
     from pipeline.preflight import wait_for_gpu
+    from pipeline.gpu_sharing import load_shared_policy
     for family,path in MODELS.items():
         for dataset in ('pope','textvqa'):
-            wait_for_gpu()
+            device = wait_for_gpu()
             output = inside(out/'evidence'/(family+'_'+dataset+'.jsonl'))
             output.parent.mkdir(exist_ok=True)
             if output.exists():
@@ -130,6 +138,10 @@ def collect(out):
                        '--max-new-tokens','128','--max-pixels','1003520',
                        '--k','3','--seed',str(SEED),
                        '--save-every','4']
+            sharing = load_shared_policy(workload='factual')
+            if sharing:
+                fraction = sharing['allocator_cap_gib'] * 1024 / device[0]['total_mib']
+                command += ['--gpu-memory-fraction', repr(fraction)]
             log = inside(out/'logs'/(family+'_'+dataset+'.log'))
             log.parent.mkdir(exist_ok=True)
             print('COLLECT_START '+family+' '+dataset, flush=True)

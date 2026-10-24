@@ -43,6 +43,16 @@ def factual_check(root, report):
             'all six distinct model/dataset cells are required')
     protocol = load(root / 'protocol.json')
     require(protocol['mode'] == 'full' and protocol['bins'] == 15, 'full 15-bin protocol required')
+    shared_policy = None
+    if protocol.get('shared_gpu_execution'):
+        policy_path = root / 'shared_gpu_policy.json'
+        require(sha(policy_path) == protocol['shared_gpu_policy_sha256'], 'Factual sharing policy changed')
+        shared_policy = load(policy_path)
+        require(shared_policy.get('version') == 2 and shared_policy.get('workload') == 'factual'
+                and shared_policy.get('allocator_cap_gib') == 36,
+                'Factual sharing requires its bounded, workload-specific policy')
+        require(protocol['gpu_resource_source_sha256'] == sha(Path(__file__).with_name('gpu_sharing.py')),
+                'Factual GPU resource control source changed')
     if 'parameter_mode' in protocol:
         require(protocol.get('parameter_helper_sha256') == sha(Path(__file__).with_name('factual_parameters.py')),
                 'factual evaluation/parameter helper changed')
@@ -72,6 +82,19 @@ def factual_check(root, report):
                 and cell['n_test'] == int(test.sum()) and cell['group_overlap'] == 0,
                 'factual report counts differ from actual split')
         evidence_path = root / 'evidence' / (name + '.jsonl')
+        if shared_policy:
+            resources = load(evidence_path.with_name(evidence_path.name + '.resources.json'))
+            require(resources['complete'] is True and resources['completed_samples'] == len(raw),
+                    'Factual shared collection is incomplete or reused cached samples')
+            require(resources['shared_policy_sha256'] == protocol['shared_gpu_policy_sha256']
+                    and resources['allocator_cap_gib'] == 36
+                    and resources['peak_reserved_bytes'] <= 36 * 1024**3,
+                    'Factual shared collection exceeded or changed its memory policy')
+            require(resources['device']['index'] == shared_policy['gpu_index']
+                    and resources['device']['uuid'] == shared_policy['gpu_uuid']
+                    and resources['hardware_compute_partition'] is False
+                    and resources['zero_interference_guaranteed'] is False,
+                    'Factual shared GPU identity or resource disclosure differs')
         require(sha(evidence_path) == cell['new_evidence_sha256'], 'fresh evidence hash changed')
         evidence = read_rows(evidence_path)
         require([r['id'] for r in evidence] == [r['id'] for r in raw], 'fresh evidence is incomplete/reordered')

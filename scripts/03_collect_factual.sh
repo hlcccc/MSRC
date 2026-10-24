@@ -6,7 +6,7 @@ set -euo pipefail
 source "$(dirname "$0")/_common.sh"
 set_mode "$@"
 
-RUN_ID=""; GPU=""; RUN_MODE="full"; PHASE="run"; PARAMETERS=""
+RUN_ID=""; GPU=""; RUN_MODE="full"; PHASE="run"; PARAMETERS=""; SHARE_POLICY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --run-id) RUN_ID="$2"; shift 2 ;;
@@ -14,6 +14,7 @@ while [ $# -gt 0 ]; do
     --mode)   RUN_MODE="$2"; shift 2 ;;
     --phase)  PHASE="$2"; shift 2 ;;
     --parameters) PARAMETERS="$2"; shift 2 ;;
+    --shared-gpu-policy) SHARE_POLICY="$2"; shift 2 ;;
     --execute|--run|--check) shift ;;
     *) die "unknown option: $1" ;;
   esac
@@ -30,6 +31,7 @@ PARAMETER_ARGS=()
 
 require_python
 export MSRC_GPU="${GPU:-0}"
+[ -z "$SHARE_POLICY" ] || export MSRC_GPU_SHARE_POLICY="$SHARE_POLICY"
 RUN_DIR="$("$PYTHON_BIN" -c 'import sys; from pipeline.common import inside, runs_dir; print(inside(runs_dir()/sys.argv[1]))' "$RUN_ID")"
 OUT="$RUN_DIR/factual"
 

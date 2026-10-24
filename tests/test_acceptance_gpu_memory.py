@@ -55,3 +55,24 @@ def test_safety_waits_and_keeps_threads_and_seed_without_cap(monkeypatch):
     configure = load_function(ROOT / 'pipeline/safety.py', 'configure_gpu', {'SEED': 20260920})
     assert configure() is torch
     assert calls == [('preflight',), ('threads', 2), ('seed', 20260920)]
+
+
+def test_factual_sharing_passes_only_the_authorized_memory_cap(tmp_path, monkeypatch):
+    from pipeline import gpu_sharing, preflight
+    calls = []
+    monkeypatch.setattr(preflight, 'wait_for_gpu', lambda: [{'total_mib': 81920}])
+    monkeypatch.setattr(gpu_sharing, 'load_shared_policy', lambda **kw: {'allocator_cap_gib': 36})
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0)
+    collect = load_function(ROOT / 'pipeline/factual.py', 'collect', {
+        'MODELS': {'llava': '/weights/llava'}, 'SOURCE': ROOT, 'sys': sys,
+        'SEED': 20260920, 'inside': lambda path: path,
+        'subprocess': SimpleNamespace(run=run, STDOUT=-2),
+    })
+    collect(tmp_path)
+    assert len(calls) == 2
+    for command in calls:
+        assert float(command[command.index('--gpu-memory-fraction') + 1]) == 0.45
+        assert command[command.index('--max-new-tokens') + 1] == '128'
+        assert command[command.index('--k') + 1] == '3'

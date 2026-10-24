@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -369,6 +370,12 @@ def main() -> int:
 
     out_path = Path(args.out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    gpu_budget = None
+    if os.environ.get('MSRC_GPU_SHARE_POLICY'):
+        if args.device != 'cuda:0' or args.second_model_path:
+            raise ValueError('Shared acceptance collection needs one primary model on cuda:0')
+        from pipeline.gpu_sharing import FactualWorkBudget
+        gpu_budget = FactualWorkBudget(out_path, args.gpu_memory_fraction)
 
     # Record what this run's readings will mean, and refuse to resume into a file
     # collected under different settings.
@@ -471,6 +478,8 @@ def main() -> int:
                 written += 1
                 continue
 
+            if gpu_budget:
+                gpu_budget.before_record()
             record = dict(record)
             record["id"] = record.get("id", record.get("image", str(index)))
             question = str(record.get("question", ""))
@@ -551,6 +560,8 @@ def main() -> int:
             record["model_calls"] = calls + (1 if primary is not None else 0)
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             written += 1
+            if gpu_budget:
+                gpu_budget.after_record()
 
             if written % args.save_every == 0:
                 handle.flush()
@@ -565,6 +576,8 @@ def main() -> int:
     finally:
         handle.close()
 
+    if gpu_budget:
+        gpu_budget.finish()
     print(f"[collect] wrote {written} records -> {out_path}")
     print(f"[collect] total generations: {provider.calls}")
     if generated:

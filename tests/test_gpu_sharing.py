@@ -127,3 +127,85 @@ def test_exclusive_use_resumes_when_no_other_job_is_present(policy, monkeypatch)
     with budget.work('synthetic'):
         clock[0] += 2.0
     assert budget.effective_duty == 1.0 and sleeps == []
+
+
+@pytest.fixture
+def factual_policy(policy, monkeypatch):
+    path, settings = policy
+    settings = dict(settings, version=2, workload='factual', allocator_cap_gib=36,
+                    min_start_free_mib=49152, min_run_free_mib=12288)
+    path.write_text(json.dumps(settings))
+    monkeypatch.delenv('MSRC_SAFETY_BACKEND', raising=False)
+    return path, settings
+
+
+def test_bounded_factual_policy_retains_owner_uuid_and_reserve_checks(factual_policy, monkeypatch):
+    mock_gpu(monkeypatch)
+    assert preflight.check_gpu()[0]['shared_gpu_execution'] is True
+    mock_gpu(monkeypatch, free=49000)
+    with pytest.raises(preflight.GPUInUse, match='reserve'):
+        preflight.check_gpu()
+    mock_gpu(monkeypatch, free=12000, own_mib=36864)
+    with pytest.raises(preflight.GPUInUse, match='reserve'):
+        preflight.check_gpu(ignore_current_process=True)
+    mock_gpu(monkeypatch, owner='someone_else')
+    with pytest.raises(preflight.GPUInUse, match='unauthorized process owner'):
+        preflight.check_gpu()
+
+
+@pytest.mark.parametrize('mutation', [
+    {'allocator_cap_gib': 80}, {'min_start_free_mib': 32768},
+    {'min_run_free_mib': 8192}, {'min_run_free_mib': 20480},
+    {'workload': 'plugguard'}, {'version': True},
+])
+def test_factual_policy_cannot_relax_its_bounds(factual_policy, mutation):
+    path, settings = factual_policy
+    path.write_text(json.dumps(dict(settings, **mutation)))
+    with pytest.raises(ValueError):
+        gpu_sharing.load_shared_policy(workload='factual')
+
+
+def test_factual_and_plugguard_permissions_cannot_be_interchanged(factual_policy, monkeypatch):
+    with pytest.raises(ValueError, match='bounded factual'):
+        gpu_sharing.load_shared_policy(workload='plugguard')
+    monkeypatch.setenv('MSRC_SAFETY_BACKEND', 'plugguard')
+    with pytest.raises(ValueError, match='bounded factual'):
+        gpu_sharing.load_shared_policy()
+
+
+def test_factual_work_budget_caps_yields_records_and_detects_policy_changes(factual_policy, monkeypatch, tmp_path):
+    import sys
+    clock, sleeps, saved = [0.0], [], []
+    monkeypatch.setattr(gpu_sharing.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(gpu_sharing.time, 'sleep', sleeps.append)
+    monkeypatch.setattr(gpu_sharing, 'save', lambda path, data: saved.append(data))
+    monkeypatch.setattr(preflight, 'check_gpu', lambda **kw: [dict(
+        total_mib=81920, other_processes=[{'owner': 'HLC'}])])
+    cuda = SimpleNamespace(synchronize=lambda: None,
+                           max_memory_reserved=lambda device: 30 * 1024**3,
+                           max_memory_allocated=lambda device: 29 * 1024**3)
+    monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(cuda=cuda))
+    with pytest.raises(ValueError, match='memory cap differs'):
+        gpu_sharing.FactualWorkBudget(tmp_path/'evidence.jsonl', 0.0)
+    budget = gpu_sharing.FactualWorkBudget(tmp_path/'evidence.jsonl', 0.45)
+    budget.before_record()
+    clock[0] += 2.0
+    budget.after_record()
+    budget.finish()
+    assert sleeps == [2.0]
+    assert saved[-1]['complete'] is True and saved[-1]['completed_samples'] == 1
+    assert saved[-1]['allocator_cap_gib'] == 36
+    path, settings = factual_policy
+    path.write_text(json.dumps(dict(settings, authorization='Changed')))
+    clock[0] = 15.0
+    with pytest.raises(ValueError, match='permission changed'):
+        budget.before_record()
+
+
+def test_factual_work_budget_stops_if_allocator_exceeds_cap(factual_policy, monkeypatch, tmp_path):
+    import sys
+    monkeypatch.setattr(preflight, 'check_gpu', lambda **kw: [dict(total_mib=81920)])
+    cuda = SimpleNamespace(max_memory_reserved=lambda device: 37 * 1024**3)
+    monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(cuda=cuda))
+    with pytest.raises(ValueError, match='exceeded'):
+        gpu_sharing.FactualWorkBudget(tmp_path/'evidence.jsonl', 0.45)

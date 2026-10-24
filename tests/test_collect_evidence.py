@@ -135,6 +135,32 @@ def test_an_input_that_brings_its_own_answers_says_what_it_costs(
         assert primary["visual_attention_mass"] is None
 
 
+def test_shared_scheduling_preserves_all_sample_outputs(monkeypatch, tmp_path):
+    from pipeline import gpu_sharing
+    baseline_dir, shared_dir = tmp_path/'baseline', tmp_path/'shared'
+    baseline_dir.mkdir()
+    shared_dir.mkdir()
+    baseline = _run(monkeypatch, baseline_dir, [RIGHT, WRONG], ITEMS)
+    events = []
+    class Budget:
+        def __init__(self, output, fraction):
+            events.append(('budget', fraction))
+        def before_record(self):
+            events.append('before')
+        def after_record(self):
+            events.append('after')
+        def finish(self):
+            events.append('finished')
+    monkeypatch.setenv('MSRC_GPU_SHARE_POLICY', 'synthetic-policy.json')
+    monkeypatch.setattr(gpu_sharing, 'FactualWorkBudget', Budget)
+    monkeypatch.setattr(collector, 'cap_gpu_memory', lambda fraction, *devices: events.append(('cap', fraction)))
+    shared = _run(monkeypatch, shared_dir, [RIGHT, WRONG], ITEMS,
+                  extra=('--device', 'cuda:0', '--gpu-memory-fraction', '0.45'))
+    assert shared == baseline
+    assert events == [('cap', 0.45), ('budget', 0.45),
+                      'before', 'after', 'before', 'after', 'finished']
+
+
 def test_resuming_does_not_collapse_items_that_share_an_id(monkeypatch, tmp_path):
     """POPE names a record after its image, and one image is polled about several
     objects, so ids repeat inside a single file.
