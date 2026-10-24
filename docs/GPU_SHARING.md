@@ -40,3 +40,25 @@ splits, prompts, generation budgets, fitting rules, and metric formulas remain
 unchanged. Sharing changes scheduling and memory limits, not the tested method.
 Record the source revision and any operational transition in the execution log;
 do not overwrite an earlier run's protocol or restart completed model experiments.
+
+## Waiting Instead of Exiting When Other Users Arrive
+
+An explicit version-3 policy opts into sharing with any process owner. Set
+`version: 3`, `allowed_other_users: ["*"]`, and `workload` to `factual` or
+`plugguard`. All remaining fields and that workload's memory bounds remain as
+above. Record the user's authorization; versions 1 and 2 still permit only their
+named owners and do not accept the wildcard.
+
+Version 3 observes other process owners but never signals or changes their jobs.
+New occupants do not stop collection. If actual free memory drops below the
+reserve, our process waits between complete work blocks and rechecks the frozen
+permission. It resumes when memory permits without changing the RNG state,
+sample sequence, or inference settings. A changed permission or device identity
+still fails loudly; no policy can guarantee that an unrelated allocation cannot
+race a GPU operation.
+
+This in-process wait is not a claim of restart equivalence after a process dies.
+If an old attempt lacks an RNG checkpoint, preserve its evidence and use a
+separate, explicitly recorded full attempt rather than silently appending with
+a reset random stream. Keep the original failure and never select attempts by
+their test performance.

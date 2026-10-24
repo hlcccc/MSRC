@@ -20,7 +20,16 @@ def load_shared_policy(*, workload=None):
                 'allocator_cap_gib', 'min_start_free_mib', 'min_run_free_mib',
                 'target_duty_when_shared', 'check_interval_seconds', 'authorization'}
     version = policy.get('version')
-    if version == 2:
+    if version == 3:
+        expected.add('workload')
+        kind = policy.get('workload')
+        if kind not in ('factual', 'plugguard') or workload not in (None, kind):
+            raise ValueError('Version 3 sharing needs its exact bounded workload')
+        if (kind == 'plugguard') != (os.environ.get('MSRC_SAFETY_BACKEND') == 'plugguard'):
+            raise ValueError('Version 3 sharing backend differs from its workload')
+        cap, minimum_start, minimum_run = ((36, 49152, 12288) if kind == 'factual'
+                                            else (24, 32768, 8192))
+    elif version == 2:
         expected.add('workload')
         if (policy.get('workload') != 'factual' or workload not in (None, 'factual')
                 or os.environ.get('MSRC_SAFETY_BACKEND') == 'plugguard'):
@@ -43,6 +52,8 @@ def load_shared_policy(*, workload=None):
             or not all(isinstance(user, str) and user.strip() == user and user for user in users)
             or len(set(users)) != len(users)):
         raise ValueError('GPU sharing requires explicit other-process owners')
+    if (version == 3 and users != ['*']) or (version != 3 and '*' in users):
+        raise ValueError('Any-owner sharing requires an explicit version 3 policy')
     if (type(policy['allocator_cap_gib']) is not int or policy['allocator_cap_gib'] != cap
             or not isinstance(policy['min_start_free_mib'], int)
             or not isinstance(policy['min_run_free_mib'], int)
@@ -58,6 +69,23 @@ def load_shared_policy(*, workload=None):
     return dict(policy, source_path=str(path), source_sha256=sha(path))
 
 
+def checked_device(policy, check):
+    """Wait for memory under opt-in v3 permission without touching other jobs."""
+    from pipeline.preflight import GPUInUse
+    while True:
+        current = load_shared_policy(workload=policy.get('workload'))
+        if current['source_sha256'] != policy['source_sha256']:
+            raise ValueError('GPU sharing permission changed during a frozen run')
+        try:
+            return check(ignore_current_process=True)[0]
+        except GPUInUse as exc:
+            if policy['version'] != 3:
+                raise
+            print('GPU_RESOURCE_WAIT: %s; keeping all samples and waiting %ss'
+                  % (exc, policy['check_interval_seconds']), flush=True)
+            time.sleep(policy['check_interval_seconds'])
+
+
 class FactualWorkBudget:
     """Yield between complete samples without changing model calls or RNG state."""
 
@@ -69,7 +97,7 @@ class FactualWorkBudget:
             raise ValueError('Factual sharing requires explicit permission')
         self.output = inside(output.with_name(output.name + '.resources.json'))
         self.torch = torch
-        device = check_gpu(ignore_current_process=True)[0]
+        device = checked_device(self.policy, check_gpu)
         expected = self.policy['allocator_cap_gib'] * 1024 / device['total_mib']
         if not math.isclose(memory_fraction, expected, rel_tol=1e-12, abs_tol=1e-12):
             raise ValueError('Collector memory cap differs from the authorized factual policy')
@@ -86,7 +114,7 @@ class FactualWorkBudget:
             current = load_shared_policy(workload='factual')
             if current['source_sha256'] != self.policy['source_sha256']:
                 raise ValueError('GPU sharing permission changed during factual collection')
-            self.device = check_gpu(ignore_current_process=True)[0]
+            self.device = checked_device(self.policy, check_gpu)
             self.effective_duty = (self.policy['target_duty_when_shared']
                                    if self.device.get('other_processes') else 1.0)
             self.last_check = time.monotonic()
@@ -116,6 +144,7 @@ class FactualWorkBudget:
             target_duty_when_shared=self.policy['target_duty_when_shared'],
             effective_duty=self.effective_duty, measured_work_seconds=self.work_seconds,
             voluntary_idle_seconds=self.idle_seconds, device=self.device,
+            wait_on_resource_pressure=self.policy['version'] == 3,
             hardware_compute_partition=False, zero_interference_guaranteed=False))
 
     def finish(self):

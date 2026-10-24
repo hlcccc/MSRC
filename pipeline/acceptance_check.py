@@ -48,9 +48,13 @@ def factual_check(root, report):
         policy_path = root / 'shared_gpu_policy.json'
         require(sha(policy_path) == protocol['shared_gpu_policy_sha256'], 'Factual sharing policy changed')
         shared_policy = load(policy_path)
-        require(shared_policy.get('version') == 2 and shared_policy.get('workload') == 'factual'
+        require(shared_policy.get('version') in (2, 3) and shared_policy.get('workload') == 'factual'
                 and shared_policy.get('allocator_cap_gib') == 36,
                 'Factual sharing requires its bounded, workload-specific policy')
+        if shared_policy['version'] == 3:
+            require(shared_policy.get('allowed_other_users') == ['*']
+                    and bool(shared_policy.get('authorization')),
+                    'Any-owner sharing needs explicit frozen permission')
         require(protocol['gpu_resource_source_sha256'] == sha(Path(__file__).with_name('gpu_sharing.py')),
                 'Factual GPU resource control source changed')
     if 'parameter_mode' in protocol:
@@ -95,6 +99,9 @@ def factual_check(root, report):
                     and resources['hardware_compute_partition'] is False
                     and resources['zero_interference_guaranteed'] is False,
                     'Factual shared GPU identity or resource disclosure differs')
+            if shared_policy['version'] == 3:
+                require(resources.get('wait_on_resource_pressure') is True,
+                        'Version 3 factual sharing must wait on resource pressure')
         require(sha(evidence_path) == cell['new_evidence_sha256'], 'fresh evidence hash changed')
         evidence = read_rows(evidence_path)
         require([r['id'] for r in evidence] == [r['id'] for r in raw], 'fresh evidence is incomplete/reordered')
@@ -172,6 +179,12 @@ def safety_check(root, report):
                     and policy['allocator_cap_gib'] == protocol['allocator_cap_gib'] == 24,
                     'GPU sharing permission differs from the actual device or memory cap')
             control = runtime['resource_control']
+            if policy['version'] == 3:
+                require(policy.get('workload') == 'plugguard'
+                        and policy.get('allowed_other_users') == ['*']
+                        and bool(policy.get('authorization'))
+                        and control.get('wait_on_resource_pressure') is True,
+                        'Version 3 PlugGuard sharing must retain explicit permission and waiting')
             require(control['shared_gpu_execution'] is True
                     and control['target_duty_when_shared'] == policy['target_duty_when_shared']
                     and control['hardware_compute_partition'] is False

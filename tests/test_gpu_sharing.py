@@ -1,4 +1,4 @@
-"""Explicit sharing never disables owner, UUID, memory or frozen-policy checks."""
+"""Sharing permissions preserve identity, memory bounds and immutable policies."""
 
 import json
 import os
@@ -209,3 +209,130 @@ def test_factual_work_budget_stops_if_allocator_exceeds_cap(factual_policy, monk
     monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(cuda=cuda))
     with pytest.raises(ValueError, match='exceeded'):
         gpu_sharing.FactualWorkBudget(tmp_path/'evidence.jsonl', 0.45)
+
+
+def any_owner_policy(policy, monkeypatch, workload):
+    path, settings = policy
+    settings = dict(settings, version=3, workload=workload, allowed_other_users=['*'])
+    if workload == 'factual':
+        settings.update(allocator_cap_gib=36, min_start_free_mib=49152, min_run_free_mib=12288)
+        monkeypatch.delenv('MSRC_SAFETY_BACKEND', raising=False)
+    path.write_text(json.dumps(settings))
+    return path, settings
+
+
+@pytest.mark.parametrize('workload', ['factual', 'plugguard'])
+def test_any_owner_policy_observes_new_users_but_keeps_memory_and_identity_checks(
+        policy, monkeypatch, workload):
+    any_owner_policy(policy, monkeypatch, workload)
+    for owner in ('HLC', 'another_user', '?'):
+        mock_gpu(monkeypatch, owner=owner)
+        device = preflight.check_gpu()[0]
+        assert device['other_processes'][0]['owner'] == owner
+    mock_gpu(monkeypatch, free=7000, own_mib=25000)
+    with pytest.raises(preflight.GPUInUse, match='reserve'):
+        preflight.check_gpu(ignore_current_process=True)
+    mock_gpu(monkeypatch, uuid='GPU-not-authorized')
+    with pytest.raises(ValueError, match='authorized shared GPU'):
+        preflight.check_gpu()
+
+
+@pytest.mark.parametrize('version', [1, 2])
+def test_legacy_permission_cannot_silently_authorize_every_owner(policy, monkeypatch, version):
+    path, settings = policy
+    if version == 2:
+        settings.update(version=2, workload='factual', allocator_cap_gib=36,
+                        min_start_free_mib=49152, min_run_free_mib=12288)
+        monkeypatch.delenv('MSRC_SAFETY_BACKEND', raising=False)
+    path.write_text(json.dumps(dict(settings, allowed_other_users=['*'])))
+    with pytest.raises(ValueError, match='explicit version 3'):
+        gpu_sharing.load_shared_policy()
+
+
+@pytest.mark.parametrize('mutation', [
+    {'allowed_other_users': ['HLC']}, {'workload': 'singguard'},
+    {'allocator_cap_gib': 80}, {'min_run_free_mib': 0}, {'authorization': ''},
+])
+def test_version3_does_not_allow_ambiguous_or_unbounded_permission(policy, monkeypatch, mutation):
+    path, settings = any_owner_policy(policy, monkeypatch, 'factual')
+    path.write_text(json.dumps(dict(settings, **mutation)))
+    with pytest.raises(ValueError):
+        gpu_sharing.load_shared_policy(workload='factual')
+
+
+def test_resource_pressure_waits_then_returns_without_restarting_work(policy, monkeypatch):
+    any_owner_policy(policy, monkeypatch, 'factual')
+    sleeps, checks = [], []
+    monkeypatch.setattr(gpu_sharing.time, 'sleep', sleeps.append)
+    def check(**kwargs):
+        checks.append(kwargs)
+        if len(checks) < 3:
+            raise preflight.GPUInUse('not enough memory reserve')
+        return [dict(other_processes=[{'owner': 'another_user'}])]
+    result = gpu_sharing.checked_device(gpu_sharing.load_shared_policy(), check)
+    assert result['other_processes'][0]['owner'] == 'another_user'
+    assert sleeps == [10, 10] and len(checks) == 3
+
+
+def test_legacy_pressure_still_fails_and_permission_changes_during_wait_are_refused(policy, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(gpu_sharing.time, 'sleep', sleeps.append)
+    def blocked(**kwargs):
+        raise preflight.GPUInUse('memory reserve')
+    with pytest.raises(preflight.GPUInUse):
+        gpu_sharing.checked_device(gpu_sharing.load_shared_policy(), blocked)
+    assert sleeps == []
+    path, settings = any_owner_policy(policy, monkeypatch, 'factual')
+    def mutate(_):
+        path.write_text(json.dumps(dict(settings, authorization='changed while waiting')))
+    monkeypatch.setattr(gpu_sharing.time, 'sleep', mutate)
+    with pytest.raises(ValueError, match='permission changed'):
+        gpu_sharing.checked_device(gpu_sharing.load_shared_policy(), blocked)
+
+
+def test_factual_budget_waits_before_a_sample_without_adding_or_skipping_samples(policy, monkeypatch, tmp_path):
+    import sys
+    any_owner_policy(policy, monkeypatch, 'factual')
+    clock, sleeps, checks, saved = [0.0], [], [], []
+    monkeypatch.setattr(gpu_sharing.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(gpu_sharing.time, 'sleep', sleeps.append)
+    monkeypatch.setattr(gpu_sharing, 'save', lambda path, data: saved.append(data))
+    def check(**kwargs):
+        checks.append(kwargs)
+        if len(checks) == 2:
+            raise preflight.GPUInUse('memory reserve')
+        return [dict(total_mib=81920, other_processes=[{'owner': 'another_user'}])]
+    monkeypatch.setattr(preflight, 'check_gpu', check)
+    cuda = SimpleNamespace(synchronize=lambda: None, max_memory_reserved=lambda _: 30 * 1024**3,
+                           max_memory_allocated=lambda _: 29 * 1024**3)
+    monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(cuda=cuda))
+    budget = gpu_sharing.FactualWorkBudget(tmp_path/'evidence.jsonl', .45)
+    budget.before_record()
+    clock[0] += 2
+    budget.after_record()
+    budget.finish()
+    assert sleeps == [10, 2] and len(checks) == 3
+    assert saved[-1]['complete'] and saved[-1]['completed_samples'] == 1
+    assert saved[-1]['wait_on_resource_pressure'] is True
+
+
+def test_plugguard_budget_waits_then_runs_one_unchanged_block(policy, monkeypatch):
+    from pipeline import plugguard
+    any_owner_policy(policy, monkeypatch, 'plugguard')
+    clock, sleeps, checks = [0.0], [], []
+    monkeypatch.setattr(plugguard.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(plugguard.time, 'sleep', sleeps.append)
+    monkeypatch.setattr(plugguard, 'save', lambda *args: None)
+    monkeypatch.setattr(plugguard, 'torch', SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda: None)))
+    def check(**kwargs):
+        checks.append(kwargs)
+        if len(checks) == 1:
+            raise preflight.GPUInUse('memory reserve')
+        return [dict(other_processes=[{'owner': 'another_user'}])]
+    monkeypatch.setattr(plugguard, 'check_gpu', check)
+    budget = plugguard.WorkBudget()
+    with budget.work('synthetic'):
+        clock[0] += 2
+    assert sleeps == [10, 2] and len(checks) == 2
+    assert budget.snapshot()['completed_blocks'] == 1
+    assert budget.snapshot()['wait_on_resource_pressure'] is True

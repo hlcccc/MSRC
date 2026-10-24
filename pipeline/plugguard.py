@@ -28,7 +28,7 @@ from pipeline.preflight import check_gpu, wait_for_gpu
 from pipeline.plugguard_report import (assign_roles, checkpoint_identity,
                                       write_report)
 from pipeline.safety_split import SPLIT_VERSION, source_sha256, validate_partition
-from pipeline.gpu_sharing import load_shared_policy
+from pipeline.gpu_sharing import checked_device, load_shared_policy
 
 
 ROOT = None
@@ -74,6 +74,7 @@ class WorkBudget:
                     effective_duty=self.effective_duty, completed_blocks=self.blocks,
                     measured_work_block_seconds=self.work_seconds,
                     voluntary_idle_seconds=self.idle_seconds,
+                    wait_on_resource_pressure=bool(self.policy and self.policy['version'] == 3),
                     hardware_compute_partition=False, zero_interference_guaranteed=False)
 
     @contextlib.contextmanager
@@ -83,7 +84,8 @@ class WorkBudget:
             current = load_shared_policy()
             if (current or {}).get('source_sha256') != (self.policy or {}).get('source_sha256'):
                 raise ValueError('GPU sharing permission changed during a frozen run')
-            device = check_gpu(ignore_current_process=True)[0]
+            device = (checked_device(self.policy, check_gpu) if self.policy
+                      else check_gpu(ignore_current_process=True)[0])
             if self.policy:
                 self.effective_duty = (self.policy['target_duty_when_shared']
                                        if device.get('other_processes') else 1.0)

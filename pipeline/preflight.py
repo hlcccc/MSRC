@@ -150,7 +150,8 @@ def check_gpu(ignore_current_process=False) -> list[dict]:
     if policy is not None:
         if target['index'] != policy['gpu_index'] or target['uuid'] != policy['gpu_uuid']:
             raise ValueError('Requested GPU differs from the explicitly authorized shared GPU')
-        unexpected = [p for p in busy if p['owner'] not in policy['allowed_other_users']]
+        unexpected = [p for p in busy if '*' not in policy['allowed_other_users']
+                      and p['owner'] not in policy['allowed_other_users']]
         if unexpected:
             raise GPUInUse('Shared GPU contains an unauthorized process owner: %s' % unexpected)
         free = int(subprocess.check_output([
