@@ -1,0 +1,17 @@
+{
+  "format": "msrc-multilayer-frozen-core-v1",
+  "origin": "3090 multilayer_001, verified again on HLC A100 2026-10-26",
+  "files": {
+    "cloud_prepare.py": "333bd13b2c6ae8d82e96c5787163f1dcf37956156b404d0b577d1904fa2329a7",
+    "inference_source.py": "3f7bf6e0aeb4d2022ce8f078df0e5db6e7d33f4f0d82201861419fdf4bfe4122",
+    "multilayer_experiment.py": "295ae929bebebffb220368d81582234552acbf14d34ba4452611e7ddbf4e2e93",
+    "replay.py": "c4216a8f573216cd3ff6d29139dd29827a6e717b30ee1b1fc6e8e705a9f54870",
+    "safety_lab/__init__.py": "2b0dc2fcec49d48a775d1e0654b54eab09a4115efec57f17b4d6284ba1d3a520",
+    "safety_lab/multilayer_capture.py": "d6d621fc45da3970c814c3b40e6509c42568e5c69d5598d49386f9f32db4a2cc",
+    "safety_lab/multilayer_policy.py": "27e47c597008dcf9476ccb86615e2d06b4b0d4b98383b3e78a872c91ffc55e58",
+    "safety_lab/multilayer_signals.py": "dc6fe8fda8473fbc29f338a7295f6cf66b1802cd3ee1c9254a821d73685c36a5",
+    "safety_lab/policy.py": "4ec2023f53b509024ad27209076a2a335f1e7f1c6758b5b9f6cab8a02d022daa",
+    "safety_lab/prefix_data.py": "20b2d8f192afbe5d566aed27cdd4d7c2d4540527f2d4eca080d049f3dd7e1dec",
+    "safety_lab/storage.py": "9171fc0d1934bd6535da09563e585f001969c6f2ddc4f50d99f40f0fa42f5576"
+  }
+}

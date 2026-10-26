@@ -1,0 +1,55 @@
+{
+  "format": "msrc-multilayer-publication-checks-v1",
+  "date": "2026-10-26",
+  "base_commit": "62cc46298e58dc5ee1fd52a92e7eec836a4a148d",
+  "tested_index_tree_before_this_receipt": "1a82038f51d85f2151e7dc6b1137c4017d402349",
+  "runner_sha256": "00b57fe6e077adccba24961e7c00327e72818062ce5467e52809fe66dc70a6d7",
+  "frozen_core_manifest_sha256": "64b485aa1fab227ef04d42ec66f38cf20e4d8cd04a1a81e2bdbe8b4bac5a3742",
+  "requirements_sha256_lf": "cc663bddc4786509f542b30a74a924e0e8d23abe47b7bb616d9156732e08091c",
+  "publication_checks": {
+    "source_transport": "Git index archive extracted on Linux; frozen byte hashes verified",
+    "cpu_tests": {"passed": 120, "failed": 0, "log_sha256": "890ba3ba12821974fee0b71483139f5d8d096557b325169f2b98322406fc49cf"},
+    "bash_syntax": {"entry_points": 4, "all_pass": true},
+    "full_workflow_plan": {"pass": true, "created_run_directory": false, "log_sha256": "b7730d9d627f6da52d113b60a6a49747245b5e8ab20932056e838269cae7c800"},
+    "public_parameter_archive": {
+      "release": "acceptance-parameters-20261023",
+      "bytes": 68915087,
+      "sha256": "e94fa8685dd41db52039ba89a64f879681f9645fab2cc02a8c96779363d05a0a",
+      "source_used": "existing exact copy of the public Release asset, hash verified",
+      "fresh_download": "not completed: GitHub release download timed out on verification machine",
+      "unpack_and_manifest_checks_pass": true
+    },
+    "material_preparation_and_full_image_check": {
+      "pass": true,
+      "requests": 6720,
+      "roles": {"fit": 2688, "calibration": 672, "test": 3360},
+      "exact_release_input_and_role_identity_match": true,
+      "raw_inputs": "existing validated original-project assets, read-only",
+      "preparation_receipt_sha256": "61488d5a00f7d19bc5b5778f134830fe4a2be90df55b641e7207684ce403cd83"
+    },
+    "portable_experiment_setup": {"pass": true, "development": 3360, "test": 3360},
+    "local_complete_check_receipt_sha256": "974a2c70d4e3cba08e00eb8be822f00b2fa6562e0120ab4d16c37a78dcd97d47",
+    "gpu_inference_started_for_publication": false,
+    "fresh_blank_machine_gpu_end_to_end_run": false,
+    "word_document_qa": "document_qa.json; OOXML structure and exact six command blocks, not native pagination rendering"
+  },
+  "historical_gpu_core_evidence_not_current_run_output": {
+    "hardware": "HLC A100; independent full enhanced-safety run",
+    "test_requests": 3360,
+    "answer_reviews": 16800,
+    "token_events_audited": 470213,
+    "baseline": {"TP": 2519, "TN": 840, "FP": 0, "FN": 1, "accuracy": 0.999702380952381},
+    "temporal_hold": {"TP": 2520, "TN": 760, "FP": 80, "FN": 0, "accuracy": 0.9761904761904762},
+    "overall_accuracy_improvement_claimed": false,
+    "benchmark_previously_observed": true,
+    "original_head_inherited": true,
+    "added_directions_and_thresholds_freshly_fitted": true,
+    "six_step_reuse_audit_receipt_sha256": "c0637d783a5ec2ff7bf01afe519ce9e818fcc69b0e36230f10578ed5a2003f14",
+    "full_report_sha256": "61c71d1a48cdeb341c8ff2bfdfc51d8209e167f2597826fbba657b7a081a677b",
+    "local_buffer_gate_not_http_delivery": true,
+    "first_harmful_token_spans_not_annotated": true
+  },
+  "original_pipeline_code_changed": false,
+  "original_experiment_files_rewritten": false,
+  "credentials_or_cloud_environment_required_by_public_entry": false
+}

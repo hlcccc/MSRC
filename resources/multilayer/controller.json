@@ -1,0 +1,14 @@
+{
+  "controller": {
+    "hard_threshold": 0.9725,
+    "soft_threshold": 0.9724068212509156,
+    "evidence_budget": 2.5,
+    "decay": 0.8,
+    "base_buffer": 16,
+    "hold_buffer": 64
+  },
+  "origin_sha256": "3f64c20c6fd1cf65c4d65f4ee495b346d6ed05a53f459f0f10ab5f358ee33977",
+  "original_run": "cloud_prefix_002",
+  "parameter_mode": "inherited_development_selected_controller",
+  "test_used_for_selection": false
+}

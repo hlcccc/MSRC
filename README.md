@@ -1,5 +1,15 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
+**Independent multi-layer safety extension (2026-10-26):**
+[six-step procedure](docs/FLOW_SAFETY_MULTILAYER.md) |
+[Word procedure](docs/FLOW_SAFETY_MULTILAYER.docx) |
+[implementation, provenance and validation scope](docs/MULTILAYER_DELIVERY.md).
+Run `bash scripts/run_safety_multilayer.sh --run-id multilayer_001 --gpus 0`
+to print its plan; add `--execute` to run it. The original four variants remain
+unchanged. This extension inherits the published frozen PlugGuard head and
+development-selected controller; the three added directions and added warning
+thresholds are fitted onsite. It is not an all-components-fresh no-fit variant.
+
 > **PlugGuard acceptance branch, 2026-10-19.** The five entry points and the
 > factual eight-signal protocol are unchanged; step 04 now uses PlugGuard only.
 > [Test flow](docs/PLUGGUARD_TEST_FLOW.md) |

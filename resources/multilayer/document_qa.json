@@ -1,0 +1,8 @@
+{
+  "six_steps": true,
+  "commands_match_source": true,
+  "original_template_formats_used": true,
+  "source_sha256": "67e5699bb79ed90fed311cb17b02553ded8e3147f6401f4a09677c9c6422f81c",
+  "docx_sha256": "083312121d8655501bcaf5c14b1935557226b1cb4b59708f09ef8043f44849d7",
+  "qa_scope": "OOXML structure and exact command text; no native pagination rendering"
+}

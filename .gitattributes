@@ -7,3 +7,7 @@
 /references/plugguard/models.py text eol=lf -whitespace
 /pipeline/plugguard.py text eol=lf
 /pipeline/plugguard_report.py text eol=lf
+
+# Preserve the audited experimental core byte-for-byte on every checkout.
+/extensions/multilayer/frozen/** -text
+/extensions/multilayer/runner.py text eol=lf
