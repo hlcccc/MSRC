@@ -103,5 +103,5 @@ if __name__ == '__main__':
     source = root / 'docs/FLOW_SAFETY_MULTILAYER.md'
     result = build(source, source.with_suffix('.docx'), args.template)
     target = root / 'resources/multilayer/document_qa.json'
-    target.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    target.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8', newline='\n')
     print(json.dumps(result))

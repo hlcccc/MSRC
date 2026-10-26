@@ -11,7 +11,7 @@ def build(root):
                   files={p.relative_to(core).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in sorted(core.rglob('*.py'))})
     target = root / 'resources/multilayer/source_manifest.json'
-    target.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    target.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8', newline='\n')
 
 
 if __name__ == '__main__':

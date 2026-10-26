@@ -11,7 +11,7 @@
 ## （1）下载项目并安装环境
 
 ```bash
-git clone --branch acceptance-multilayer-20261026 --single-branch \
+git clone --branch acceptance-multilayer-20261026-v2 --single-branch \
   https://github.com/hlcccc/MSRC.git msrc_multilayer
 cd msrc_multilayer
 bash scripts/01_setup_envs.sh --execute

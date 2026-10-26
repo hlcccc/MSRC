@@ -19,6 +19,19 @@ class DeliveryTests(unittest.TestCase):
                          'c16d237c5634bcaae24f6bedaf5075479fcf22e395c9ecfff081715fdf5d0479')
         self.assertIn('assets/plugguard/base_models.json', sources)
 
+    def test_publication_receipt_matches_checkout_bytes(self):
+        root = runner.common.ROOT
+        receipt = runner.load(root / 'resources/multilayer/verification.json')
+        for name, key in (('extensions/multilayer/runner.py', 'runner_sha256'),
+                          ('resources/multilayer/source_manifest.json', 'frozen_core_manifest_sha256')):
+            self.assertEqual(runner.sha(root / name), receipt[key])
+        import hashlib
+        requirements = (root / 'requirements-acceptance.txt').read_bytes().replace(b'\r\n', b'\n')
+        self.assertEqual(hashlib.sha256(requirements).hexdigest(), receipt['requirements_sha256_lf'])
+        qa = runner.load(root / 'resources/multilayer/document_qa.json')
+        self.assertEqual(runner.sha(root / 'docs/FLOW_SAFETY_MULTILAYER.md'), qa['source_sha256'])
+        self.assertEqual(runner.sha(root / 'docs/FLOW_SAFETY_MULTILAYER.docx'), qa['docx_sha256'])
+
     def test_tampered_core_is_rejected(self):
         with tempfile.TemporaryDirectory() as name:
             target = Path(name) / 'core'
@@ -92,8 +105,8 @@ class DeliveryTests(unittest.TestCase):
             runner.audit_events(arm, 10)
 
     def test_missing_materials_records_incomplete_not_pass(self):
-        with tempfile.TemporaryDirectory() as name, patch.object(runner.common, 'ROOT', Path(name)):
-            root = Path(name) / 'fresh'
+        with tempfile.TemporaryDirectory() as name, patch.object(runner.common, 'ROOT', Path(name).resolve()):
+            root = Path(name).resolve() / 'fresh'
             with self.assertRaises(FileNotFoundError):
                 runner.checked_joint_report(root, 'fresh')
             summary = runner.load(root / 'joint/summary.json')
@@ -102,8 +115,8 @@ class DeliveryTests(unittest.TestCase):
             self.assertIsNone(summary['acceptance_pass'])
 
     def test_failed_joint_audit_records_incomplete_not_pass(self):
-        with tempfile.TemporaryDirectory() as name, patch.object(runner.common, 'ROOT', Path(name)):
-            root = Path(name) / 'fresh'
+        with tempfile.TemporaryDirectory() as name, patch.object(runner.common, 'ROOT', Path(name).resolve()):
+            root = Path(name).resolve() / 'fresh'
             with patch.object(runner, 'check_materials'), patch.object(runner, 'PortableExperiment'), \
                     patch.object(runner, 'joint_report', side_effect=ValueError('source changed')):
                 with self.assertRaisesRegex(ValueError, 'source changed'):

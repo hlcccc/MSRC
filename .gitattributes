@@ -11,3 +11,11 @@
 # Preserve the audited experimental core byte-for-byte on every checkout.
 /extensions/multilayer/frozen/** -text
 /extensions/multilayer/runner.py text eol=lf
+/extensions/__init__.py text eol=lf
+/extensions/multilayer/__init__.py text eol=lf
+/extensions/multilayer/tests/*.py text eol=lf
+/resources/multilayer/*.json text eol=lf
+/docs/FLOW_SAFETY_MULTILAYER.md text eol=lf
+/docs/MULTILAYER_DELIVERY.md text eol=lf
+/scripts/build_multilayer_doc.py text eol=lf
+/scripts/build_multilayer_manifest.py text eol=lf

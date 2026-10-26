@@ -51,12 +51,17 @@ completed blank-machine GPU acceptance. See `resources/multilayer/verification.j
 for the checks actually performed for this release. Every future run must produce
 its own material receipts, frozen source/parameter hashes and per-request outcomes.
 
-Publication checks passed 120 CPU tests, four shell syntax checks, a no-execution
+Publication checks passed 121 CPU tests, four shell syntax checks, a no-execution
 workflow plan, exact public-Release parameter verification, and all 6,720 raw
 input/image/role checks plus portable setup. These reused an already validated
 environment and raw assets read-only. A new Release download timed out; the
 verified existing archive was used instead. No GPU inference was started for
 publication, and no new blank-machine installation/GPU completion is claimed.
+
+The fixed tag is `acceptance-multilayer-20261026-v2`. New metadata and documents
+use LF, with a checkout-byte regression test. The first publication tag is kept;
+its Windows-archive metadata digest differed from Linux checkout bytes. Frozen
+algorithm bytes and original GPU experiments were not changed by this correction.
 
 ## Contents
 

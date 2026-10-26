@@ -2,15 +2,16 @@
   "format": "msrc-multilayer-publication-checks-v1",
   "date": "2026-10-26",
   "base_commit": "62cc46298e58dc5ee1fd52a92e7eec836a4a148d",
-  "tested_index_tree_before_this_receipt": "1a82038f51d85f2151e7dc6b1137c4017d402349",
+  "initial_archive_test_tree": "1a82038f51d85f2151e7dc6b1137c4017d402349",
+  "canonical_public_material_source_commit": "8094947b2d4b2e1605286200a8348dad0ccf8afc",
   "runner_sha256": "00b57fe6e077adccba24961e7c00327e72818062ce5467e52809fe66dc70a6d7",
-  "frozen_core_manifest_sha256": "64b485aa1fab227ef04d42ec66f38cf20e4d8cd04a1a81e2bdbe8b4bac5a3742",
-  "requirements_sha256_lf": "cc663bddc4786509f542b30a74a924e0e8d23abe47b7bb616d9156732e08091c",
+  "frozen_core_manifest_sha256": "a1ddb5bee0150cb0703e00c2a7938c0d3dc99477ee554a1431ac72f7d93ff69f",
+  "requirements_sha256_lf": "a95a56823e00c42a79df7eee6d98815cede8992896022152eb2b7c7e927e4d32",
   "publication_checks": {
-    "source_transport": "Git index archive extracted on Linux; frozen byte hashes verified",
-    "cpu_tests": {"passed": 120, "failed": 0, "log_sha256": "890ba3ba12821974fee0b71483139f5d8d096557b325169f2b98322406fc49cf"},
+    "source_transport": "Canonical LF Git files; public GitHub checkout independently checked on Linux",
+    "cpu_tests": {"passed": 121, "failed": 0, "log_sha256": "84708b08fd5bf0a8288b67afd67ef0893fe29921ac32346554c458c6453a9df9"},
     "bash_syntax": {"entry_points": 4, "all_pass": true},
-    "full_workflow_plan": {"pass": true, "created_run_directory": false, "log_sha256": "b7730d9d627f6da52d113b60a6a49747245b5e8ab20932056e838269cae7c800"},
+    "full_workflow_plan": {"pass": true, "created_run_directory": false, "log_sha256": "02922b1a7fbbf4bb58686a2c80701a339a3f1cc7a0f3187e173a8e80d1a8c17e"},
     "public_parameter_archive": {
       "release": "acceptance-parameters-20261023",
       "bytes": 68915087,
@@ -25,10 +26,12 @@
       "roles": {"fit": 2688, "calibration": 672, "test": 3360},
       "exact_release_input_and_role_identity_match": true,
       "raw_inputs": "existing validated original-project assets, read-only",
-      "preparation_receipt_sha256": "61488d5a00f7d19bc5b5778f134830fe4a2be90df55b641e7207684ce403cd83"
+      "preparation_receipt_sha256": "cb0b73ce66b01538d23aba194e8df20ec8e31f2d5a6862b7cf3e7e40575af2e4",
+      "canonical_public_check_receipt_sha256": "3de0711a5a2e1c5d4123ad5a2f431a204275641739143bf350ac480fe455d86f"
     },
     "portable_experiment_setup": {"pass": true, "development": 3360, "test": 3360},
-    "local_complete_check_receipt_sha256": "974a2c70d4e3cba08e00eb8be822f00b2fa6562e0120ab4d16c37a78dcd97d47",
+    "initial_archive_check_receipt_sha256": "974a2c70d4e3cba08e00eb8be822f00b2fa6562e0120ab4d16c37a78dcd97d47",
+    "initial_archive_line_endings_differed_from_linux_checkout": true,
     "gpu_inference_started_for_publication": false,
     "fresh_blank_machine_gpu_end_to_end_run": false,
     "word_document_qa": "document_qa.json; OOXML structure and exact six command blocks, not native pagination rendering"
