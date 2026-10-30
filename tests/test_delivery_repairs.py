@@ -115,16 +115,21 @@ def test_two_published_flows_state_actual_reports_and_preflight_order():
         assert all('\u6307\u6807' + number in text for number in ('1.11', '1.12', '1.13'))
         steps = [line[3:].split(' ', 1)[0] for line in text.splitlines() if line.startswith('## ')]
         assert steps == ['1', '2', '3', '4', '5', '6', '7', '8']
-        folder = 'MSRC_fitted' if mode == 'FITTED' else 'MSRC_no_fit'
+        folder = 'MSRC_offline_20261030'
         assert f'scp -P 22 -r "D:\\{folder}" "USER@HOST:~/"' in text
         assert f'cd ~/{folder}' in text
         assert f'scp -P 22 -r "USER@HOST:~/{folder}/MSRC/runs/' in text
+        assert 'sha256sum -c models/SHA256SUMS.txt' in text
+        assert 'sha256sum -c env/SHA256SUMS.txt' in text
+        assert '--offline-wheels ../env/wheels' in text
+        assert '--local-models ../models/local-models.json' in text
+        assert 'MODEL_INVENTORY_OK' in text
         assert '\u65b0\u5efaMSRC_delivery' not in text
         assert '\u4e0d\u4e0b\u8f7d' not in text
         assert 'MSRC_delivery' not in text
         assert 'start "" "D:\\MSRC_results' in text and 'notepad "D:\\MSRC_results' in text
         assert 'cat runs/' in text and 'ENV_OK' in text
-        assert '--prepared-package ../prepared_data --download-models' in text
+        assert '--prepared-package ../prepared_data' in text
         assert '--raw-package' not in text and '--download-data' not in text
         assert 'FIXED_SPLITS_OK' in text and 'PREPARED_DATA_OK' in text
         assert 'ACCEPTANCE_PASS' in text and 'ACCEPTANCE_FAIL' in text and 'INCOMPLETE' in text
@@ -138,8 +143,8 @@ def test_two_published_flows_state_actual_reports_and_preflight_order():
 
 
 @pytest.mark.parametrize('mode,share,code', [
-    ('FITTED', '1xgi_G8kn6kejfnyZwTph2Q', '2gjx'),
-    ('NO_FIT', '1FdNypm-7R-kMLsv1c8Sxww', 'uaha'),
+    ('FITTED', '1w2iBAjIj0YfFniU2kFts_g', 'tc5l'),
+    ('NO_FIT', '1w2iBAjIj0YfFniU2kFts_g', 'tc5l'),
 ])
 def test_real_share_links_match_between_word_and_markdown(mode, share, code):
     source = common.ROOT / 'docs' / ('FLOW_SAFETY_MULTILAYER_' + mode + '.md')

@@ -1,7 +1,12 @@
-"""Install a hash-pinned private CPython when the host lacks Python 3.10/venv."""
+"""Install a hash-pinned private CPython when the host lacks Python 3.10/venv.
+
+`MSRC_PYTHON_ARCHIVE` points at the same archive inside the offline netdisk package,
+so the acceptance machine never has to reach GitHub.
+"""
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path, PurePosixPath
 import platform
 import shutil
@@ -28,6 +33,15 @@ def prepare():
     cache = inside(ROOT / 'cache/python')
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / 'cpython.tar.gz'
+    offline = os.environ.get('MSRC_PYTHON_ARCHIVE')
+    if offline and not archive.exists():
+        supplied = Path(offline).expanduser().resolve()
+        if not supplied.is_file():
+            raise ValueError('MSRC_PYTHON_ARCHIVE is not a file: %s' % supplied)
+        if supplied.stat().st_size != source['bytes'] or sha(supplied) != source['sha256']:
+            raise ValueError('offline CPython archive differs from its published digest')
+        shutil.copyfile(supplied, archive)
+        print('OFFLINE_PYTHON ' + str(supplied), file=sys.stderr, flush=True)
     if not archive.exists():
         partial = inside(cache / 'cpython.part')
         print('DOWNLOAD_PYTHON ' + source['url'], file=sys.stderr, flush=True)

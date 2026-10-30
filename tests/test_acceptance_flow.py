@@ -179,6 +179,48 @@ def test_frozen_metadata_preserves_local_template_after_public_download(workspac
     assert all(common.sha(target / name) == digest for name, digest in files.items())
 
 
+def test_offline_package_may_omit_the_optional_singguard_role(workspace):
+    """The netdisk offline package ships five roles; SingGuard is not delivered."""
+    model = workspace / 'offline_model'
+    model.mkdir()
+    (model / 'config.json').write_text('{}')
+    (model / 'model.safetensors').write_bytes(b'offline weights')
+    assets = workspace / 'assets'
+    roles = {name: {'path': str(model), 'revision': 'a' * 40}
+             for name in prepare_assets.REQUIRED_ROLES}
+    assert 'guard' not in roles
+    prepare_assets.inventory_models(assets, roles)
+    lock = json.loads((assets / 'models.lock.json').read_text())['models']
+    assert set(lock) == prepare_assets.REQUIRED_ROLES
+    prepare_assets.verify_model_inventory(assets)
+
+    incomplete = dict(roles)
+    incomplete.pop('judge')
+    with pytest.raises(ValueError, match='judge'):
+        prepare_assets.inventory_models(assets, incomplete)
+
+
+def test_download_can_skip_optional_roles_for_the_offline_package(workspace, monkeypatch):
+    calls = []
+
+    def snapshot_download(**kwargs):
+        folder = Path(kwargs['local_dir'])
+        folder.mkdir(parents=True)
+        (folder / 'config.json').write_text('{}')
+        (folder / 'model.safetensors').write_bytes(b'weight fixture')
+        calls.append(kwargs['repo_id'])
+
+    api = SimpleNamespace(model_info=lambda repo: SimpleNamespace(sha='a' * 40))
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(
+        snapshot_download=snapshot_download, HfApi=lambda: api))
+    prepare_assets.download_models(workspace / 'assets', None, include_optional=False)
+    assert 'inclusionAI/SingGuard-4b' not in calls
+    assert len(calls) == 4
+    lock = json.loads((workspace / 'assets/models.lock.json').read_text())['models']
+    assert 'guard' not in lock
+    prepare_assets.verify_model_inventory(workspace / 'assets')
+
+
 def test_model_inventory_reads_utf8_even_with_a_different_system_default(workspace, monkeypatch):
     model = workspace / '\u6a21\u578b'
     model.mkdir()

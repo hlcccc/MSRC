@@ -2,16 +2,16 @@
 
 指标1.11不确定性量化建模、1.12不确定性来源分析和1.13多模态生成内容风险评估具体测试流程：
 
-## 1 下载并上传交付包
+## 1 下载并上传离线交付包
 
-百度网盘：https://pan.baidu.com/s/1FdNypm-7R-kMLsv1c8Sxww?pwd=uaha　提取码：uaha
+百度网盘：https://pan.baidu.com/s/1w2iBAjIj0YfFniU2kFts_g?pwd=tc5l　提取码：tc5l
 
-下载整个MSRC_no_fit文件夹到电脑D盘，完成后为D:\MSRC_no_fit。
+下载整个MSRC_offline_20261030文件夹到电脑D盘，完成后为D:\MSRC_offline_20261030。该文件夹已包含代码、已处理数据（含固定训练/测试划分）、项目已拟合参数（有拟合版使用）、四套官方基座模型和离线依赖包，全程不需要访问HuggingFace、GitHub或PyPI。
 
 在电脑CMD执行：
 
 ```cmd
-scp -P 22 -r "D:\MSRC_no_fit" "USER@HOST:~/"
+scp -P 22 -r "D:\MSRC_offline_20261030" "USER@HOST:~/"
 ```
 
 USER改为服务器用户名，HOST改为服务器地址，22改为SSH端口，后文同步替换。等待上传完成，再登录服务器：
@@ -20,27 +20,32 @@ USER改为服务器用户名，HOST改为服务器地址，22改为SSH端口，�
 ssh -p 22 USER@HOST
 ```
 
-## 2 核验材料并安装环境
+## 2 核验材料并离线安装环境
 
 ```bash
-cd ~/MSRC_no_fit
+cd ~/MSRC_offline_20261030
 sha256sum -c SHA256SUMS.txt
+sha256sum -c models/SHA256SUMS.txt
+sha256sum -c env/SHA256SUMS.txt
 unzip MSRC-code-netdisk-20261030.zip
 cd MSRC
-bash scripts/01_setup_envs.sh --execute
+bash scripts/01_setup_envs.sh --execute \
+  --offline-wheels ../env/wheels \
+  --offline-python ../env/python/cpython-3.10.19+20251014-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz
 ```
 
-校验均显示OK，安装成功提示：ENV_OK。后续服务器命令均在当前项目目录执行。
+三张校验表必须全部显示OK，安装成功提示：ENV_OK。后续服务器命令均在当前项目目录执行。
 
 ## 3 准备模型和数据
 
 ```bash
 bash scripts/02_prepare_assets_data.sh --execute \
-  --prepared-package ../prepared_data --download-models
+  --prepared-package ../prepared_data \
+  --local-models ../models/local-models.json
 bash scripts/02_prepare_assets_data.sh --check
 ```
 
-脚本导入已处理数据和固定训练/测试划分，下载官方模型，不再重建数据集。成功提示：PREPARED_DATA_OK、FIXED_SPLITS_OK、ASSETS_OK、CONFIG_PATHS_OK。后续仅使用训练侧数据现场拟合。
+脚本导入已处理数据和固定训练/测试划分，就地从网盘材料核对四套官方模型，不再下载模型、不重建数据集。成功提示：PREPARED_DATA_OK、FIXED_SPLITS_OK、ASSETS_OK、MODEL_INVENTORY_OK、CONFIG_PATHS_OK。后续仅使用训练侧数据现场拟合。
 
 ## 4 采集信号、拟合并测试融合校准器
 
@@ -93,7 +98,7 @@ RUN_COMPLETED表示流程完成；ACCEPTANCE_PASS表示三个指标均达标，A
 
 ```cmd
 if not exist "D:\MSRC_results" mkdir "D:\MSRC_results"
-scp -P 22 -r "USER@HOST:~/MSRC_no_fit/MSRC/runs/ml_no_fit_001" "D:\MSRC_results"
+scp -P 22 -r "USER@HOST:~/MSRC_offline_20261030/MSRC/runs/ml_no_fit_001" "D:\MSRC_results"
 start "" "D:\MSRC_results\ml_no_fit_001\multilayer\joint\report.html"
 notepad "D:\MSRC_results\ml_no_fit_001\multilayer\joint\report.md"
 ```

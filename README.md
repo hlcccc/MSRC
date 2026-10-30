@@ -1,8 +1,10 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Current multi-layer delivery: `acceptance-multilayer-netdisk-20261030`.**
-Prepared data with fixed train/test partitions and concise netdisk procedures:
-[`acceptance-multilayer-netdisk-20261030`](docs/NETDISK_INPUTS.md).
+**Current multi-layer delivery: offline netdisk package `MSRC_offline_20261030`.**
+One folder carries the code, the prepared data with fixed train/test partitions, the
+project-fitted parameters, the four pinned base models, the offline dependency wheels and
+the three SHA256 tables, so acceptance runs without HuggingFace, GitHub or PyPI access:
+[offline package notes](docs/NETDISK_INPUTS.md).
 The prepared package skips raw-data preprocessing and benign-image construction
 on the acceptance machine. Its input/image hashes and fixed partitions match
 the public rebuild and unchanged acceptance algorithms. It contains no model

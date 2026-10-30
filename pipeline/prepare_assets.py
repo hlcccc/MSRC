@@ -23,6 +23,11 @@ REPOS = {
     "generator": "Qwen/Qwen2.5-VL-7B-Instruct",
     "judge": "Qwen/Qwen3Guard-Gen-8B",
 }
+# The multilayer delivery (indicators 1.11-1.13) runs with the PlugGuard backend and
+# never loads the legacy SingGuard safety head, so `guard` is optional: an offline
+# package may omit it, and download-models can skip it with --skip-optional-roles.
+OPTIONAL_ROLES = {"guard"}
+REQUIRED_ROLES = set(REPOS) - OPTIONAL_ROLES
 DATA_FILES = {
     "factual": ["pope.jsonl", "textvqa.jsonl"],
     "safety": ["mmsafety_all.jsonl", "mmsafety_sd.jsonl", "benign_native.jsonl",
@@ -112,8 +117,17 @@ def verify(assets: Path) -> None:
 
 
 def inventory_models(assets: Path, models: dict) -> None:
+    """Record the local model tree. Optional roles may be omitted from the delivery."""
+    unknown = set(models) - set(REPOS)
+    missing = REQUIRED_ROLES - set(models)
+    if unknown or missing:
+        raise ValueError('model roles must cover %s; missing %s; unknown %s'
+                         % (sorted(REQUIRED_ROLES), sorted(missing), sorted(unknown)))
     memo, inventory = {}, {}
     for name, repo in REPOS.items():
+        if name not in models:
+            print('SKIP_OPTIONAL_MODEL %s (%s)' % (name, repo), flush=True)
+            continue
         spec = models[name]
         path = Path(spec['path']).expanduser().resolve()
         if not (path / 'config.json').is_file():
@@ -191,8 +205,11 @@ def apply_model_metadata(assets: Path, models: dict, expected: dict) -> None:
 def verify_model_inventory(assets: Path) -> None:
     lock = json.loads((assets / 'models.lock.json').read_text(encoding='utf-8'))
     checked = set()
-    if set(lock['models']) != set(REPOS):
-        raise ValueError('model inventory must cover all six roles')
+    roles = set(lock['models'])
+    missing, unknown = REQUIRED_ROLES - roles, roles - set(REPOS)
+    if missing or unknown:
+        raise ValueError('model inventory must cover %s; missing %s; unknown %s'
+                         % (sorted(REQUIRED_ROLES), sorted(missing), sorted(unknown)))
     for spec in lock['models'].values():
         base = Path(spec['path']).expanduser().resolve()
         for name, digest in spec['files'].items():
@@ -207,7 +224,7 @@ def verify_model_inventory(assets: Path) -> None:
     print('MODEL_INVENTORY_OK: %d unique files' % len(checked), flush=True)
 
 
-def download_models(assets: Path, endpoint: str | None) -> None:
+def download_models(assets: Path, endpoint: str | None, include_optional: bool = True) -> None:
     if endpoint:
         os.environ["HF_ENDPOINT"] = endpoint
     os.environ['HF_HUB_OFFLINE'] = '0'
@@ -228,6 +245,9 @@ def download_models(assets: Path, endpoint: str | None) -> None:
     previous = json.loads(lock_path.read_text(encoding='utf-8'))['models'] if lock_path.exists() else {}
     models, downloaded = {}, {}
     for name, repo in REPOS.items():
+        if name in OPTIONAL_ROLES and not include_optional:
+            print("SKIP_OPTIONAL_MODEL %s (%s)" % (name, repo), flush=True)
+            continue
         if repo in downloaded:
             models[name] = downloaded[repo]
             continue
@@ -239,6 +259,8 @@ def download_models(assets: Path, endpoint: str | None) -> None:
         models[name] = downloaded[repo] = dict(path=str(target), repo=repo, revision=revision)
     apply_model_metadata(assets, models, previous)
     for name, expected in previous.items():
+        if name not in models:
+            continue
         for filename, digest in expected.get('files', {}).items():
             path = (Path(models[name]['path']) / filename).resolve()
             if not path.is_relative_to(Path(models[name]['path']).resolve()) or sha(path) != digest:
@@ -255,17 +277,27 @@ def main() -> int:
     ap.add_argument("--gpu", default=os.environ.get("MSRC_GPU", "0"))
     ap.add_argument("--hf-endpoint", default=os.environ.get("HF_ENDPOINT"))
     ap.add_argument('--local-models', type=Path, help='JSON mapping model roles to existing read-only paths')
+    ap.add_argument('--skip-optional-roles', action='store_true',
+                    help='download only the roles the multilayer delivery needs (skip SingGuard)')
     args = ap.parse_args()
     initialize()
     assets = inside(args.assets)
     if args.command == "unpack":
         unpack(args.package, assets)
     elif args.command == "download-models":
-        download_models(assets, args.hf_endpoint)
+        download_models(assets, args.hf_endpoint, include_optional=not args.skip_optional_roles)
     elif args.command == 'reuse-models':
         models = json.loads(args.local_models.read_text(encoding='utf-8'))
-        inventory_models(assets, {k: {'path': v} if isinstance(v, str) else v
-                                  for k, v in models.items()})
+        base = args.local_models.expanduser().resolve().parent
+        resolved = {}
+        for role, spec in models.items():
+            spec = {'path': spec} if isinstance(spec, str) else dict(spec)
+            if 'path' in spec and not Path(spec['path']).expanduser().is_absolute():
+                # Relative entries resolve against the JSON file, so the offline
+                # model folder can live anywhere the tester puts it.
+                spec['path'] = str((base / spec['path']).resolve())
+            resolved[role] = spec
+        inventory_models(assets, resolved)
     elif args.command == 'export-model-metadata':
         export_model_metadata(assets, json.loads((assets / 'models.lock.json').read_text(encoding='utf-8'))['models'])
     elif args.command == 'verify-models':

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # (1) 创建隔离环境并安装验收所需的全部依赖，最后打印机器与版本清单。
-#   用法： bash scripts/01_setup_envs.sh [--execute]
+#   用法：
+#     bash scripts/01_setup_envs.sh [--execute]                   # 联网：走 PyPI 镜像
+#     bash scripts/01_setup_envs.sh [--execute] --offline-wheels ../env/wheels \
+#         [--offline-python ../env/python/cpython-3.10.19-...tar.gz]   # 离线：只用网盘材料
 #   不加 --execute 只打印计划；加了才真正创建 .venv 并安装。
 set -euo pipefail
 source "$(dirname "$0")/_common.sh"
@@ -10,12 +13,34 @@ BASE_PY="${MSRC_BASE_PYTHON:-python3.10}"
 VENV="$ROOT/.venv"
 REQ="${MSRC_REQUIREMENTS:-$ROOT/requirements-acceptance.txt}"
 INDEX="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+OFFLINE_WHEELS=""
+OFFLINE_PYTHON=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --offline-wheels) OFFLINE_WHEELS="${2:-}"; shift 2 ;;
+    --offline-python) OFFLINE_PYTHON="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [ -n "$OFFLINE_PYTHON" ]; then
+  [ -f "$OFFLINE_PYTHON" ] || die "offline python archive not found: $OFFLINE_PYTHON"
+  export MSRC_PYTHON_ARCHIVE="$OFFLINE_PYTHON"
+fi
+if [ -n "$OFFLINE_WHEELS" ]; then
+  [ -d "$OFFLINE_WHEELS" ] || die "offline wheels directory not found: $OFFLINE_WHEELS"
+  OFFLINE_WHEELS="$(cd "$OFFLINE_WHEELS" && pwd)"
+  PIP_SOURCE=(--no-index --find-links "$OFFLINE_WHEELS")
+  INSTALL_MODE="offline wheels ($OFFLINE_WHEELS)"
+else
+  PIP_SOURCE=(-i "$INDEX")
+  INSTALL_MODE="online index ($INDEX)"
+fi
 
 log "project      : $ROOT"
 log "base python  : $BASE_PY"
 log "venv         : $VENV"
 log "pin file     : $REQ"
-log "pypi index   : $INDEX"
+log "install      : $INSTALL_MODE"
 log "mode         : $MODE"
 
 case "$(realpath -m "$VENV")" in "$ROOT"/*) ;; *) die "venv leaves project: $VENV" ;; esac
@@ -43,9 +68,9 @@ else
 fi
 
 PIP=("$VENV/bin/python" -m pip)
-run "${PIP[@]}" install pip==25.2 wheel==0.45.1 -i "$INDEX"
-run "${PIP[@]}" install -r "$REQ" -i "$INDEX"
-run "${PIP[@]}" install -e "$ROOT" --no-deps -i "$INDEX"
+run "${PIP[@]}" install pip==25.2 wheel==0.45.1 "${PIP_SOURCE[@]}"
+run "${PIP[@]}" install -r "$REQ" "${PIP_SOURCE[@]}"
+run "${PIP[@]}" install -e "$ROOT" --no-deps "${PIP_SOURCE[@]}"
 
 if [ "$MODE" = "execute" ]; then
   "$VENV/bin/python" -m pipeline.runtime_libraries
