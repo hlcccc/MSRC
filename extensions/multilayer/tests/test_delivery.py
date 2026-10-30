@@ -27,7 +27,11 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(runner.sha(root / name), receipt[key])
         import hashlib
         requirements = (root / 'requirements-acceptance.txt').read_bytes().replace(b'\r\n', b'\n')
-        self.assertEqual(hashlib.sha256(requirements).hexdigest(), receipt['requirements_sha256_lf'])
+        delivery = runner.load(root / 'resources/multilayer/delivery_verification_20261030.json')
+        self.assertEqual(hashlib.sha256(requirements).hexdigest(), delivery['requirements_sha256_lf'])
+        previous = (root / 'resources/multilayer/reference_requirements.txt').read_bytes().replace(b'\r\n', b'\n')
+        self.assertEqual(hashlib.sha256(previous).hexdigest(), receipt['requirements_sha256_lf'])
+        self.assertEqual(delivery['previous_requirements_sha256_lf'], receipt['requirements_sha256_lf'])
         qa = runner.load(root / 'resources/multilayer/document_qa.json')
         self.assertEqual(runner.sha(root / 'docs/FLOW_SAFETY_MULTILAYER.md'), qa['source_sha256'])
         self.assertEqual(runner.sha(root / 'docs/FLOW_SAFETY_MULTILAYER.docx'), qa['docx_sha256'])

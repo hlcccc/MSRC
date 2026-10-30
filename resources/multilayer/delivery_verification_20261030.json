@@ -1,0 +1,9 @@
+{
+  "format": "msrc-multilayer-delivery-repair-v1",
+  "release": "acceptance-multilayer-delivery-20261030",
+  "original_verification": "resources/multilayer/verification.json",
+  "previous_requirements_sha256_lf": "a95a56823e00c42a79df7eee6d98815cede8992896022152eb2b7c7e927e4d32",
+  "requirements_sha256_lf": "fcfa789587100d3bfae4bd5ca3c8418df605b805094f1681f64152715318e902",
+  "changes": "Pin previously implicit OCR/tokenizer backends; inference and metric core unchanged",
+  "historical_measurements_unchanged": true
+}

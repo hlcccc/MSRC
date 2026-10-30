@@ -1,0 +1,17 @@
+{
+  "version": "3.10.19",
+  "release": "20251014",
+  "provider": "astral-sh/python-build-standalone",
+  "linux": {
+    "x86_64": {
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251014/cpython-3.10.19%2B20251014-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      "bytes": 28718646,
+      "sha256": "c0b09b744293f2aad85b1ef84544f8a7ba383675b29d1f7efd1e96bb9984399f"
+    },
+    "aarch64": {
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251014/cpython-3.10.19%2B20251014-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      "bytes": 29286388,
+      "sha256": "6ea9ff46ae3e0eb551558754c78a41cb90968b1950e1a2c716e339e6264bcc96"
+    }
+  }
+}

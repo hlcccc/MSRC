@@ -20,8 +20,6 @@ step() {
 }
 if [ "$MODE" = execute ]; then require_new_dir "$ROOT/runs/$RUN_ID"; fi
 step bash scripts/01_setup_envs.sh --execute
-step bash scripts/02_prepare_assets_data.sh --execute --download-data --download-models --gpus "$GPU"
-step bash scripts/02_prepare_assets_data.sh --check --gpus "$GPU"
 PARAMETERS=(); PHASE=fit
 if [ "$VARIANT" = fitted ]; then
   step bash scripts/02_prepare_fitted.sh --execute
@@ -29,6 +27,8 @@ if [ "$VARIANT" = fitted ]; then
   PARAMETERS=(--parameters assets/fitted/factual.json)
   PHASE=apply
 fi
+step bash scripts/02_prepare_assets_data.sh --execute --download-data --download-models --gpus "$GPU"
+step bash scripts/02_prepare_assets_data.sh --check --gpus "$GPU"
 step bash scripts/03_collect_factual.sh --run-id "$RUN_ID" --gpus "$GPU" --mode full --phase collect "${PARAMETERS[@]}" --execute
 step bash scripts/03_collect_factual.sh --run-id "$RUN_ID" --gpus "$GPU" --mode full --phase "$PHASE" --execute
 if [ "$VARIANT" = no_fit ]; then

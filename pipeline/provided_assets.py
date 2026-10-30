@@ -80,6 +80,9 @@ def prepare(check=False):
     manifest = verify(root)
     if sha(root / 'manifest.json') != registry['manifest_sha256']:
         raise ValueError('supplied state belongs to a different published release')
+    from pipeline.factual_parameters import fitted_collector, validate_code_contract
+    validate_code_contract(json.loads((root / 'factual.json').read_text(encoding='utf-8')), fitted_collector())
+    print('FITTED_SOURCE_OK ' + fitted_collector())
     print('FITTED_PARAMETERS_OK ' + str(root))
     return manifest
 

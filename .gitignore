@@ -82,3 +82,4 @@ secrets/
 Thumbs.db
 desktop.ini
 .venv-msrc/
+/.python/

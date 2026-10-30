@@ -42,6 +42,7 @@ set_mode() {
     export PYTHONDONTWRITEBYTECODE=1 TOKENIZERS_PARALLELISM=false
     export OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2
     export ARROW_NUM_THREADS=2 NUMEXPR_NUM_THREADS=2
+    export LD_LIBRARY_PATH="$ROOT/.venv/system-libs/usr/lib/x86_64-linux-gnu:$ROOT/.venv/system-libs/lib/x86_64-linux-gnu:$ROOT/.venv/system-libs/usr/lib/aarch64-linux-gnu:$ROOT/.venv/system-libs/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   fi
 }
 

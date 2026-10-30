@@ -25,9 +25,36 @@ def text_sha256(path):
     return hashlib.sha256(Path(path).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
 
 
-def source_fingerprints():
+def fitted_collector():
+    from pipeline.factual import SOURCE
+    manifest = json.loads((SOURCE / 'resources/reproduction/factual_collector.json').read_text(encoding='utf-8'))
+    entry = 'scripts/collect_evidence_fitted.py'
+    if (manifest.get('format') != 'msrc-fitted-collector-v1' or manifest['entry'] != entry
+            or manifest['original_entry'] != 'scripts/collect_evidence.py'
+            or text_sha256(SOURCE / entry) != manifest['normalized_sha256']):
+        raise ValueError('frozen fitted collector differs from its source manifest')
+    return entry
+
+
+def source_fingerprints(collector=None):
     from pipeline.factual import SOURCE, _source_files
-    return {str(p.relative_to(SOURCE)): text_sha256(p) for p in _source_files()}
+    collector = collector or 'scripts/collect_evidence.py'
+    allowed = ('scripts/collect_evidence.py', fitted_collector())
+    if collector not in allowed:
+        raise ValueError('unknown factual collector')
+    return {p.relative_to(SOURCE).as_posix(): text_sha256(
+        SOURCE / collector if p == SOURCE / 'scripts/collect_evidence.py' else p)
+        for p in _source_files()}
+
+
+def validate_code_contract(package, collector):
+    from pipeline.factual import SOURCE
+    if package.get('format') != FORMAT:
+        raise ValueError('unknown fitted factual parameter format')
+    if package['sources'] != source_fingerprints(collector):
+        raise ValueError('fitted parameters use different signal/model/scoring source')
+    if package['models_recipe_sha256'] != text_sha256(SOURCE / 'resources/reproduction/models.json'):
+        raise ValueError('fitted parameters use different public model recipe')
 
 
 def identity(rows):
@@ -132,10 +159,7 @@ def load_package(path, out, protocol):
         raise ValueError('unknown fitted factual parameter format')
     if package['method'] != {k: protocol[k] for k in METHOD_KEYS}:
         raise ValueError('fitted parameters use different inference/calibration settings')
-    if package['sources'] != source_fingerprints():
-        raise ValueError('fitted parameters use different signal/model/scoring source')
-    if package['models_recipe_sha256'] != text_sha256(SOURCE / 'resources/reproduction/models.json'):
-        raise ValueError('fitted parameters use different public model recipe')
+    validate_code_contract(package, protocol.get('collector_entry', 'scripts/collect_evidence.py'))
     if set(package['states']) != {m + '_' + d for m in MODELS for d in ('pope', 'textvqa')}:
         raise ValueError('all six fitted factual states required')
     for dataset in ('pope', 'textvqa'):

@@ -54,6 +54,10 @@ class VariantTests(unittest.TestCase):
         import sys
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
+            old_html = root / 'runs/fresh/multilayer/joint/report.html'
+            old_html.parent.mkdir(parents=True)
+            for name in ('report.html', 'signal_report.html', 'calibration_report.html', 'warning_report.html'):
+                (old_html.parent / name).write_text('ACCEPTANCE_PASS (old synthetic fixture)')
             with patch.object(runner.common, 'ROOT', root), \
                  patch.object(runner.common, 'runs_dir', return_value=root / 'runs'), \
                  patch.dict(sys.modules, {'fcntl': types.SimpleNamespace(LOCK_EX=1, LOCK_NB=2, flock=lambda *a: None)}), \
@@ -63,6 +67,9 @@ class VariantTests(unittest.TestCase):
                 summary = runner.load(root / 'runs/fresh/multilayer/joint/summary.json')
                 self.assertEqual(summary['verdict'], 'INCOMPLETE')
                 self.assertIsNone(summary['acceptance_pass'])
+                for name in ('report.html', 'signal_report.html', 'calibration_report.html', 'warning_report.html'):
+                    self.assertIn('INCOMPLETE', (old_html.parent / name).read_text())
+                self.assertFalse(runner.load(root / 'runs/fresh/multilayer/joint/outputs.json')['complete'])
 
     def test_wrong_mode_preparation_is_rejected(self):
         receipt = dict(format='msrc-multilayer-variant-materials-v1', mode='fitted', sources={})
@@ -72,9 +79,10 @@ class VariantTests(unittest.TestCase):
                 variants.check_materials(Path('unused'), 'no_fit')
 
     def test_joint_report_uses_current_metrics_and_both_parameter_modes(self):
-        for mode, factual_mode, accuracy, expected in (
-                ('fitted', 'provided', .80, 'PASS'),
-                ('no_fit', 'fresh_fit', .70, 'FAIL')):
+        for mode, factual_mode, accuracy, gain, expected in (
+                ('fitted', 'provided', .80, .5, 'PASS'),
+                ('no_fit', 'fresh_fit', .70, .5, 'FAIL'),
+                ('fitted', 'provided', .80, None, 'FAIL')):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory).resolve()
                 entry = root / 'pipeline/factual.py'
@@ -83,15 +91,28 @@ class VariantTests(unittest.TestCase):
                 with patch.object(runner.common, 'ROOT', root):
                     factual = root / 'runs/fresh/factual'
                     cells = [dict(cell=str(i), minimum_actual_signals_per_test_sample=3,
-                                  ece_before=.2, ece_after=.1, relative_improvement=.5)
+                                  ece_before=.2 if gain is not None else 0., ece_after=.1, relative_improvement=gain)
                              for i in range(6)]
                     runner.common.save(factual / 'report.json', dict(cells=cells))
                     runner.common.save(factual / 'protocol.json', dict(
                         parameter_mode=factual_mode, source_hashes={}, script_sha256=runner.sha(entry)))
                     experiment = types.SimpleNamespace(root=root / 'runs/fresh/multilayer')
+                    for cell in cells:
+                        for suffix in ('.csv', '.jsonl'):
+                            path = factual / 'signal_usage' / (cell['cell'] + suffix)
+                            path.parent.mkdir(parents=True, exist_ok=True)
+                            path.write_text('synthetic fixture')
+                    (factual / 'summary.csv').write_text('synthetic fixture')
+                    output = experiment.root / 'experiments/multilayer_001'
+                    for name in ('report.json', 'frozen.json', 'live_benchmark.json'):
+                        runner.common.save(output / name, {})
+                    for name in ('test', 'answers'):
+                        (output / 'records' / name).mkdir(parents=True)
                     tp = int(accuracy * 3360) - 700
                     safety = dict(parameter_modes=dict(head=mode), primary=dict(temporal_hold=dict(
                         accuracy=accuracy, TP=tp, TN=700, FP=140, FN=2520-tp, n=3360)))
+                    safety['by_source'] = {'temporal_hold': {suite: dict(safety['primary']['temporal_hold'])
+                        for suite in ('SD', 'SD_TYPO', 'TYPO', 'benign')}}
                     with patch('pipeline.acceptance_check.factual_check') as factual_check, \
                          patch.object(variants, 'audit_safety', return_value=safety), \
                          patch.object(variants, 'variant_sources', return_value={'fixture': 'test'}):
@@ -102,6 +123,12 @@ class VariantTests(unittest.TestCase):
                     self.assertEqual(result['factual_parameter_mode'], factual_mode)
                     self.assertTrue((experiment.root / 'joint/report.html').is_file())
                     self.assertEqual(runner.load(experiment.root / 'joint/summary.json')['verdict'], expected)
+                    inventory = runner.load(experiment.root / 'joint/outputs.json')
+                    for artifact in inventory['artifacts']:
+                        self.assertTrue((root / artifact['path']).exists(), artifact)
+                    for name in ('signal_report.html', 'calibration_report.html', 'warning_report.html',
+                                 'warning_by_source.csv', 'signal_summary.csv'):
+                        self.assertTrue((experiment.root / 'joint' / name).is_file())
 
     def test_no_fit_recipe_never_downloads_project_parameters_on_its_branch(self):
         text = (runner.common.ROOT / 'scripts/run_multilayer_variant.sh').read_text()

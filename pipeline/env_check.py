@@ -1,11 +1,8 @@
-"""Report the interpreter, the pinned packages and the GPU this machine offers.
-
-Run by ``scripts/01_setup_envs.sh`` and again by the preflight check. The point
-is that the acceptance record can name the exact versions the run used without
-anyone retyping them.
-"""
+"""Exercise the actual Python, vision, OCR and CUDA runtime before downloading models."""
 from __future__ import annotations
 
+import argparse
+import importlib
 import importlib.metadata
 import json
 import platform
@@ -13,72 +10,92 @@ import subprocess
 import sys
 from pathlib import Path
 
-REQUIRED = ["numpy", "torch", "transformers", "accelerate", "pillow", "tqdm"]
-OPTIONAL = ["pandas", "pyarrow", "rapidocr-onnxruntime", "torchvision", "sentencepiece", "timm"]
-REFERENCE = {
-    "numpy": "2.2.6",
-    "torch": "2.7.1+cu126",
-    "transformers": "5.13.0",
-    "accelerate": "1.14.0",
-    "pillow": "12.3.0",
-}
 
-
-def version(name: str) -> str | None:
+def version(name):
     try:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
         return None
 
 
-def gpu_report() -> list[dict]:
-    try:
-        out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used,driver_version",
-             "--format=csv,noheader,nounits"], text=True)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        return [{"error": str(exc)}]
-    rows = []
-    for line in out.splitlines():
-        if not line.strip():
-            continue
-        index, name, total, used, driver = [part.strip() for part in line.split(",")]
-        rows.append(dict(index=int(index), name=name, total_mib=int(total),
-                         used_mib=int(used), driver=driver))
-    return rows
-
-
-def main() -> int:
-    info = {
-        "python": sys.version.split()[0],
-        "executable": sys.executable,
-        "platform": platform.platform(),
-        "machine": platform.machine(),
-        "packages": {name: version(name) for name in REQUIRED + OPTIONAL},
-        "reference_versions": REFERENCE,
-        "gpu": gpu_report(),
-    }
-    missing = [name for name in REQUIRED if info["packages"][name] is None]
-    print(json.dumps(info, indent=2, ensure_ascii=False))
-    if missing:
-        print("ENV_INCOMPLETE: missing " + ", ".join(missing))
-        return 2
-    if not any("error" not in row for row in info["gpu"]):
-        print("ENV_INCOMPLETE: nvidia-smi reported no usable GPU")
-        return 2
+def pinned_versions():
     pins = {}
-    for line in (Path(__file__).resolve().parents[1] / 'requirements-acceptance.txt').read_text(encoding='utf-8').splitlines():
+    path = Path(__file__).resolve().parents[1] / 'requirements-acceptance.txt'
+    for line in path.read_text(encoding='utf-8').splitlines():
         if '==' in line and not line.lstrip().startswith('#'):
             name, expected = line.strip().split('==')
-            actual = version(name)
-            if actual is None or actual.split('+')[0] != expected:
-                pins[name] = dict(expected=expected, actual=actual)
-    if pins:
-        print('ENV_INCOMPLETE: pinned dependency mismatch ' + json.dumps(pins))
+            pins[name] = expected
+    return pins
+
+
+def runtime_smoke(cpu_only=False):
+    modules = ('numpy', 'torch', 'torchvision', 'transformers', 'accelerate', 'PIL.Image',
+               'pandas', 'pyarrow', 'sentencepiece', 'timm', 'cv2', 'onnxruntime',
+               'rapidocr_onnxruntime', 'tokenizers', 'safetensors')
+    loaded = {name: importlib.import_module(name) for name in modules}
+    import numpy as np
+    import torch
+    from torchvision.ops import nms
+    from rapidocr_onnxruntime import RapidOCR
+    from transformers import (AutoProcessor, AutoModelForCausalLM, AutoModelForImageTextToText,
+                              InternVLForConditionalGeneration, LlavaForConditionalGeneration,
+                              Qwen2_5_VLForConditionalGeneration)
+    nms(torch.tensor([[0., 0., 10., 10.]]), torch.tensor([1.]), .5)
+    engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=2)
+    engine(np.full((48, 160, 3), 255, dtype=np.uint8))
+    result = dict(imports=list(loaded), torchvision_ops=True, ocr_cpu_inference=True,
+                  model_classes=[c.__name__ for c in (AutoProcessor, AutoModelForCausalLM,
+                      AutoModelForImageTextToText, InternVLForConditionalGeneration,
+                      LlavaForConditionalGeneration, Qwen2_5_VLForConditionalGeneration)])
+    if not cpu_only:
+        if not torch.cuda.is_available():
+            raise RuntimeError('PyTorch cannot initialize CUDA with the installed NVIDIA driver')
+        tensor = torch.ones(1, device='cuda', dtype=torch.bfloat16)
+        if (tensor + tensor).item() != 2:
+            raise RuntimeError('CUDA kernel smoke check failed')
+        torch.cuda.synchronize()
+        result['cuda'] = dict(device=torch.cuda.get_device_name(0),
+            capability=list(torch.cuda.get_device_capability(0)),
+            build=torch.version.cuda, kernel_smoke=True, bfloat16=True)
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path)
+    parser.add_argument('--cpu-only', action='store_true', help='diagnostic only; never emits ENV_OK')
+    args = parser.parse_args()
+    pins = pinned_versions()
+    actual = {name: version(name) for name in pins}
+    info = dict(python=sys.version, executable=sys.executable, platform=platform.platform(),
+                packages=actual, required_versions=pins, cpu_only=args.cpu_only, complete=False)
+    errors = []
+    if sys.version_info[:2] != (3, 10):
+        errors.append('CPython 3.10 required, not ' + platform.python_version())
+    mismatches = {name: dict(expected=expected, actual=actual[name]) for name, expected in pins.items()
+                  if actual[name] is None or actual[name].split('+')[0] != expected}
+    if mismatches:
+        errors.append('dependency versions differ: ' + json.dumps(mismatches))
+    try:
+        dependency = subprocess.run([sys.executable, '-m', 'pip', 'check'], capture_output=True, text=True)
+        info['pip_check'] = dependency.stdout + dependency.stderr
+        if dependency.returncode:
+            errors.append('pip check failed: ' + info['pip_check'])
+        if not errors:
+            info['runtime_smoke'] = runtime_smoke(args.cpu_only)
+    except Exception as error:
+        errors.append('runtime smoke failed: ' + repr(error))
+    info.update(errors=errors, complete=not errors)
+    if args.out:
+        from pipeline.common import save
+        save(args.out, info)
+    print(json.dumps(info, indent=2, ensure_ascii=False))
+    if errors:
+        print('ENV_INCOMPLETE')
         return 2
-    print("ENV_OK")
+    print('ENV_CPU_OK_NOT_GPU_ACCEPTANCE' if args.cpu_only else 'ENV_OK')
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())

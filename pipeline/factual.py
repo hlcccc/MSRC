@@ -24,11 +24,11 @@ DONORS = {'llava':'qwen','qwen':'llava','internvl':'qwen'}
 INPUTS = data_paths()['factual']
 
 
-def _source_files():
+def _source_files(collector='scripts/collect_evidence.py'):
     """The files a re-run must reproduce: the package, the collection entry point and
     the official TextVQA scorer. Hashing the whole tree would also cover this file."""
     files = list((SOURCE / 'msrc').rglob('*.py')) + list((SOURCE / 'evaluation').rglob('*.py'))
-    files += [SOURCE / 'scripts' / 'collect_evidence.py',
+    files += [SOURCE / collector,
               SOURCE / 'references' / 'm4c_evaluator.py', SOURCE / 'pipeline' / 'common.py']
     return sorted(set(files))
 
@@ -56,8 +56,10 @@ def bin_stats(y,p,n=15):
 
 def prepare(out, mode, parameters=None):
     import numpy as np
+    from pipeline.factual_parameters import fitted_collector
     from evaluation.groups import image_group_id
     from evaluation.split import grouped_split
+    collector = fitted_collector() if parameters else 'scripts/collect_evidence.py'
     protocol = dict(seed=SEED, mode=mode, max_new_tokens=128, k=3,
                     dtype='bfloat16',
                     views=4, probes=3, resample_temperature=.7, top_p=.9,
@@ -68,7 +70,8 @@ def prepare(out, mode, parameters=None):
                     textvqa_labels='official MMF/M4C soft score < 0.5',
                     l2=.05, bins=15, missing='development available-value mean',
                     scope='full acceptance' if mode=='full' else 'engineering smoke; NOT full acceptance',
-                    source_hashes={str(p.relative_to(SOURCE)): sha(p) for p in _source_files()},
+                    source_hashes={p.relative_to(SOURCE).as_posix(): sha(p) for p in _source_files(collector)},
+                    collector_entry=collector, collector_sha256=sha(SOURCE / collector),
                     script_sha256=sha(__file__), created_ns=time.time_ns(),
                     parameter_helper_sha256=sha(Path(__file__).with_name('factual_parameters.py')),
                     parameter_mode='provided' if parameters else 'fresh_fit')
@@ -105,6 +108,8 @@ def prepare(out, mode, parameters=None):
     protocol['inputs'] = inputs_hashes
     from pipeline.gpu_sharing import load_shared_policy
     sharing = load_shared_policy(workload='factual')
+    if sharing and parameters:
+        raise ValueError('the source-frozen fitted collector does not implement shared-GPU duty control; use an unshared GPU')
     if sharing:
         shutil.copyfile(sharing['source_path'], inside(out/'shared_gpu_policy.json'))
         protocol.update(shared_gpu_execution=True,
@@ -122,8 +127,14 @@ def prepare(out, mode, parameters=None):
 
 
 def collect(out):
+    from pipeline.factual_parameters import fitted_collector
     from pipeline.preflight import wait_for_gpu
     from pipeline.gpu_sharing import load_shared_policy
+    protocol = json.loads((out / 'protocol.json').read_text(encoding='utf-8'))
+    collector = protocol.get('collector_entry', 'scripts/collect_evidence.py')
+    expected = fitted_collector() if protocol.get('parameter_mode') == 'provided' else 'scripts/collect_evidence.py'
+    if collector != expected or sha(SOURCE / collector) != protocol.get('collector_sha256'):
+        raise ValueError('factual collector does not match the frozen run protocol')
     for family,path in MODELS.items():
         for dataset in ('pope','textvqa'):
             device = wait_for_gpu()
@@ -131,7 +142,7 @@ def collect(out):
             output.parent.mkdir(exist_ok=True)
             if output.exists():
                 raise ValueError('fresh output must not exist; cached evidence is refused')
-            command = [sys.executable,'-B','-u',str(SOURCE/'scripts/collect_evidence.py'),
+            command = [sys.executable,'-B','-u',str(SOURCE/collector),
                        '--data',str(out/'inputs'/(dataset+'.jsonl')),
                        '--out',str(output),'--provider',family,'--model-path',path,
                        '--device','cuda:0','--dtype','bfloat16',

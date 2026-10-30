@@ -1,0 +1,9 @@
+{
+  "format": "msrc-fitted-collector-v1",
+  "entry": "scripts/collect_evidence_fitted.py",
+  "normalized_sha256": "bea54e392755a093e596eeddc240cd91659eb522edf25a978a25f5769088b20a",
+  "original_entry": "scripts/collect_evidence.py",
+  "source_git_ref": "b522c3f81c610df02bc5f6802c0f38f6bb21626c^",
+  "normalization": "CRLF/LF only",
+  "parameters_release": "acceptance-parameters-20261023"
+}

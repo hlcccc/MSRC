@@ -1,5 +1,6 @@
 """Uncapped new runs still wait for an available GPU."""
 import ast
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +17,13 @@ def load_function(path, name, namespace):
     return namespace[name]
 
 
+def collection_protocol(tmp_path):
+    from pipeline.common import sha
+    (tmp_path / 'protocol.json').write_text(json.dumps(dict(parameter_mode='fresh_fit',
+        collector_entry='scripts/collect_evidence.py', collector_sha256=sha(ROOT / 'scripts/collect_evidence.py'))))
+    return {'json': json, 'sha': sha}
+
+
 def test_factual_collection_waits_before_uncapped_loads(tmp_path, monkeypatch):
     from pipeline import preflight
     calls, waits = [], []
@@ -28,7 +36,7 @@ def test_factual_collection_waits_before_uncapped_loads(tmp_path, monkeypatch):
     collect = load_function(ROOT / 'pipeline/factual.py', 'collect', {
         'MODELS': {'llava': '/weights/llava'}, 'SOURCE': ROOT, 'sys': sys,
         'SEED': 20260920, 'inside': lambda path: path,
-        'subprocess': SimpleNamespace(run=run, STDOUT=-2),
+        'subprocess': SimpleNamespace(run=run, STDOUT=-2), **collection_protocol(tmp_path),
     })
     collect(tmp_path)
     assert len(calls) == len(waits) == 2
@@ -68,7 +76,7 @@ def test_factual_sharing_passes_only_the_authorized_memory_cap(tmp_path, monkeyp
     collect = load_function(ROOT / 'pipeline/factual.py', 'collect', {
         'MODELS': {'llava': '/weights/llava'}, 'SOURCE': ROOT, 'sys': sys,
         'SEED': 20260920, 'inside': lambda path: path,
-        'subprocess': SimpleNamespace(run=run, STDOUT=-2),
+        'subprocess': SimpleNamespace(run=run, STDOUT=-2), **collection_protocol(tmp_path),
     })
     collect(tmp_path)
     assert len(calls) == 2

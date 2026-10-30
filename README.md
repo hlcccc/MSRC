@@ -1,9 +1,19 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
+**Current multi-layer delivery: `acceptance-multilayer-delivery-20261030`.**
+The two procedures below match scheme indicators 1.11--1.13. Their final
+`runs/<run-id>/multilayer/joint/report.html` links three independent indicator
+reports, per-sample signal details, source-stratified safety statistics and
+token-event evidence. `outputs.json` in the same directory lists exact paths.
+Completed-but-failing acceptance returns exit code 3, not success.
+[Repair and verification scope](docs/MULTILAYER_DELIVERY_REPAIRS_20261030.md).
+
 **Two explicit multi-layer parameter modes (2026-10-30):**
 [supplied fitted state](docs/FLOW_SAFETY_MULTILAYER_FITTED.md) |
 [onsite training and fitting](docs/FLOW_SAFETY_MULTILAYER_NO_FIT.md) |
 [execution-coverage audit](docs/MULTILAYER_TWO_MODES_AUDIT.md).
+Chapter 7 Word documents: [fitted](docs/FLOW_SAFETY_MULTILAYER_FITTED.docx) |
+[onsite fitting](docs/FLOW_SAFETY_MULTILAYER_NO_FIT.docx).
 Entries: `scripts/run_safety_multilayer_fitted.sh` and
 `scripts/run_safety_multilayer_no_fit.sh`. Both require new factual collection
 and new enhanced safety testing. Omit `--execute` to print a plan. The first
