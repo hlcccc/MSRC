@@ -4,7 +4,7 @@
 
 ## 1 下载并上传交付包
 
-百度网盘：<本版本分享链接>　提取码：<提取码>
+百度网盘：https://pan.baidu.com/s/1FdNypm-7R-kMLsv1c8Sxww?pwd=uaha　提取码：uaha
 
 下载整个MSRC_no_fit文件夹到电脑D盘，完成后为D:\MSRC_no_fit。
 

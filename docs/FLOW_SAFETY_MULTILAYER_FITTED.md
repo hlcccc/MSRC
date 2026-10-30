@@ -4,7 +4,7 @@
 
 ## 1 下载并上传交付包
 
-百度网盘：<本版本分享链接>　提取码：<提取码>
+百度网盘：https://pan.baidu.com/s/1xgi_G8kn6kejfnyZwTph2Q?pwd=2gjx　提取码：2gjx
 
 下载整个MSRC_fitted文件夹到电脑D盘，完成后为D:\MSRC_fitted。
 
