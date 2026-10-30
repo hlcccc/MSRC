@@ -8,20 +8,20 @@
 
 导入后的划分文件在assets/partitions/：factual/pope_train.jsonl、pope_test.jsonl、textvqa_train.jsonl、textvqa_test.jsonl；safety/train.jsonl、test.jsonl。summary.json列出数量、身份校验值及跨集检查结果。数据包不含模型预测、指标结果或已拟合参数；参考答案属于数据集标注。
 
-网盘中早先的msrc-raw-inputs-20261030.tar是原始来源备查包，按本流程测试不需要下载。完整原始数据重建方式仍保留在GitHub脚本中。
+完整原始数据重建方式（从官方来源下载并重新处理）见项目scripts目录中的同一批脚本。
 
 完整步骤见[有拟合版](FLOW_SAFETY_MULTILAYER_FITTED.md)或[无拟合版](FLOW_SAFETY_MULTILAYER_NO_FIT.md)。
 
-不使用网盘时，可从GitHub取得同一固定版本：
+不使用网盘数据包时，直接用交付包内的MSRC项目目录，改为从官方来源下载原始数据后现场处理：
 
 ```bash
-git clone --branch acceptance-multilayer-netdisk-20261030 \
-  --single-branch https://github.com/hlcccc/MSRC.git MSRC
 cd MSRC
 bash scripts/01_setup_envs.sh --execute
 bash scripts/02_prepare_assets_data.sh \
   --execute --download-data --download-models
 bash scripts/02_prepare_assets_data.sh --check
 ```
+
+该方式需自行下载官方原始数据，耗时明显更长；网盘数据包仍是推荐路径。
 
 有拟合版再执行bash scripts/02_prepare_fitted.sh --execute及--check。随后继续对应流程第4—8步。总报告自动生成在runs/<运行编号>/multilayer/joint/report.md和同目录report.html。

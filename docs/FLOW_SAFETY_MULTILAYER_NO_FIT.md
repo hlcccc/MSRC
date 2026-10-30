@@ -4,19 +4,26 @@
 
 ## 1 下载并上传交付包
 
-在本机D盘新建MSRC_delivery文件夹，将交付网盘中的MSRC-code-netdisk-20261030.zip、SHA256SUMS.txt和prepared_data文件夹下载到其中。不下载fitted_only文件夹，保持目录和分卷原样，不手动解压或合并。
+百度网盘：<本版本分享链接>　提取码：<提取码>
 
-在电脑CMD执行，将USER、HOST替换为服务器用户名和地址；SSH端口不是22时同步替换：
+下载整个MSRC_no_fit文件夹到电脑D盘，完成后为D:\MSRC_no_fit。
+
+在电脑CMD执行：
 
 ```cmd
-scp -P 22 -r "D:\MSRC_delivery" "USER@HOST:~/"
+scp -P 22 -r "D:\MSRC_no_fit" "USER@HOST:~/"
+```
+
+USER改为服务器用户名，HOST改为服务器地址，22改为SSH端口，后文同步替换。等待上传完成，再登录服务器：
+
+```cmd
 ssh -p 22 USER@HOST
 ```
 
 ## 2 核验材料并安装环境
 
 ```bash
-cd ~/MSRC_delivery
+cd ~/MSRC_no_fit
 sha256sum -c SHA256SUMS.txt
 unzip MSRC-code-netdisk-20261030.zip
 cd MSRC
@@ -86,7 +93,7 @@ RUN_COMPLETED表示流程完成；ACCEPTANCE_PASS表示三个指标均达标，A
 
 ```cmd
 if not exist "D:\MSRC_results" mkdir "D:\MSRC_results"
-scp -P 22 -r "USER@HOST:~/MSRC_delivery/MSRC/runs/ml_no_fit_001" "D:\MSRC_results"
+scp -P 22 -r "USER@HOST:~/MSRC_no_fit/MSRC/runs/ml_no_fit_001" "D:\MSRC_results"
 start "" "D:\MSRC_results\ml_no_fit_001\multilayer\joint\report.html"
 notepad "D:\MSRC_results\ml_no_fit_001\multilayer\joint\report.md"
 ```

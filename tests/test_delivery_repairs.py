@@ -113,7 +113,13 @@ def test_two_published_flows_state_actual_reports_and_preflight_order():
         assert all('\u6307\u6807' + number in text for number in ('1.11', '1.12', '1.13'))
         steps = [line[3:].split(' ', 1)[0] for line in text.splitlines() if line.startswith('## ')]
         assert steps == ['1', '2', '3', '4', '5', '6', '7', '8']
-        assert 'scp -P 22 -r "USER@HOST:~/MSRC_delivery/MSRC/runs/' in text
+        folder = 'MSRC_fitted' if mode == 'FITTED' else 'MSRC_no_fit'
+        assert f'scp -P 22 -r "D:\\{folder}" "USER@HOST:~/"' in text
+        assert f'cd ~/{folder}' in text
+        assert f'scp -P 22 -r "USER@HOST:~/{folder}/MSRC/runs/' in text
+        assert '\u65b0\u5efaMSRC_delivery' not in text
+        assert '\u4e0d\u4e0b\u8f7d' not in text
+        assert 'MSRC_delivery' not in text
         assert 'start "" "D:\\MSRC_results' in text and 'notepad "D:\\MSRC_results' in text
         assert 'cat runs/' in text and 'ENV_OK' in text
         assert '--prepared-package ../prepared_data --download-models' in text
