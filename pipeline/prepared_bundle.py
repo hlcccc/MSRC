@@ -45,7 +45,7 @@ def recipe_identity():
 
 
 def regular(path):
-    path = Path(path).expanduser().absolute()
+    path = Path(os.path.abspath(Path(path).expanduser()))
     if path.is_symlink() or path.resolve() != path or not path.is_file():
         raise ValueError('regular non-symlink file required: %s' % path)
     return path
@@ -53,7 +53,8 @@ def regular(path):
 
 def materialize(package, assets):
     """Join browser-sized transport parts automatically, without changing data."""
-    package = Path(package).expanduser().absolute()
+    # Normalize the documented ../prepared_data path without following symlinks.
+    package = Path(os.path.abspath(Path(package).expanduser()))
     if not package.is_dir():
         return regular(package)
     if package.resolve() != package or package.is_symlink():

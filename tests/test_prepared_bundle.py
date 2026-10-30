@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+from pathlib import Path
 import tarfile
 
 import pytest
@@ -202,3 +203,31 @@ def test_missing_or_corrupt_transport_part_fails_before_join(prepared):
     with pytest.raises(ValueError, match='missing or corrupt'):
         bundle.restore(folder, root / 'never_created')
     assert not (root / 'never_created').exists()
+
+
+@pytest.mark.parametrize('split_parts', [True, False])
+def test_exact_relative_package_path_from_published_procedure(prepared, monkeypatch, split_parts):
+    root, _, archive, payload = prepared
+    project = root / 'MSRC'
+    project.mkdir()
+    if split_parts:
+        transport(root, archive).rename(root / 'prepared_data')
+        relative = Path('../prepared_data')
+    else:
+        relative = Path('../prepared.tar')
+    monkeypatch.chdir(project)
+    bundle.restore(relative, project / 'assets')
+    for name, content in payload.items():
+        assert (project / 'assets' / name).read_bytes() == content
+
+
+def test_relative_path_support_does_not_allow_symlink_transport(prepared):
+    root, _, archive, _ = prepared
+    folder = transport(root, archive)
+    link = root / 'linked_transport'
+    try:
+        link.symlink_to(folder, target_is_directory=True)
+    except OSError:
+        pytest.skip('symlink creation unavailable on this platform')
+    with pytest.raises(ValueError, match='regular prepared package directory'):
+        bundle.materialize(link, root / 'new/assets')
