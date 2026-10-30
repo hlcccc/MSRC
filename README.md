@@ -1,6 +1,14 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Current multi-layer delivery: `acceptance-multilayer-reports-20261030`.**
+**Current multi-layer delivery: `acceptance-multilayer-netdisk-20261030`.**
+Prepared data with fixed train/test partitions and concise netdisk procedures:
+[`acceptance-multilayer-netdisk-20261030`](docs/NETDISK_INPUTS.md).
+The prepared package skips raw-data preprocessing and benign-image construction
+on the acceptance machine. Its input/image hashes and fixed partitions match
+the public rebuild and unchanged acceptance algorithms. It contains no model
+predictions or base-model weights; project-fitted parameters stay in the separate
+`fitted_only` folder. The onsite-fit version still trains/fits onsite. The earlier
+raw-input mirror remains optional provenance material, not the required data package.
 The two procedures below match scheme indicators 1.11--1.13. Their final
 `runs/<run-id>/multilayer/joint/report.html` links three independent indicator
 reports, per-sample signal details, source-stratified safety statistics and

@@ -11,6 +11,8 @@ set_mode "$@"
 
 ASSETS="${MSRC_ASSETS:-$ROOT/assets}"
 PACKAGE=""
+RAW_PACKAGE=""
+PREPARED_PACKAGE=""
 DOWNLOAD=0
 DOWNLOAD_DATA=0
 ENDPOINT="${HF_ENDPOINT:-}"
@@ -21,6 +23,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --assets)        ASSETS="$2"; shift 2 ;;
     --package)       PACKAGE="$2"; shift 2 ;;
+    --raw-package)   RAW_PACKAGE="$2"; shift 2 ;;
+    --prepared-package) PREPARED_PACKAGE="$2"; shift 2 ;;
     --download-models) DOWNLOAD=1; shift ;;
     --download-data) DOWNLOAD_DATA=1; shift ;;
     --hf-endpoint)   ENDPOINT="$2"; shift 2 ;;
@@ -32,7 +36,9 @@ while [ $# -gt 0 ]; do
 done
 
 require_python
+[ -z "$PREPARED_PACKAGE" ] || { [ -z "$PACKAGE" ] && [ -z "$RAW_PACKAGE" ] && [ -z "$SOURCES" ] && [ "$DOWNLOAD_DATA" = "0" ]; } || die "--prepared-package cannot be mixed with other data preparation options"
 [ "$DOWNLOAD_DATA" = "0" ] || { [ -z "$PACKAGE" ] && [ -z "$SOURCES" ]; } || die "--download-data cannot be mixed with --package or --sources"
+[ -z "$RAW_PACKAGE" ] || { [ -z "$PACKAGE" ] && [ -z "$SOURCES" ]; } || die "--raw-package cannot be mixed with --package or --sources"
 log "assets       : $ASSETS"
 log "mode         : $MODE"
 
@@ -44,12 +50,17 @@ if [ "$MODE" = "check" ]; then
   exit 0
 fi
 
+if [ -n "$PREPARED_PACKAGE" ]; then
+  run "$PYTHON_BIN" -m pipeline.prepared_bundle restore --package "$PREPARED_PACKAGE" --assets "$ASSETS"
+fi
 if [ -n "$PACKAGE" ]; then
   run "$PYTHON_BIN" -m pipeline.prepare_assets unpack --package "$PACKAGE" --assets "$ASSETS" --gpu "$GPU"
 fi
-if [ "$DOWNLOAD_DATA" = "1" ]; then
+if [ "$DOWNLOAD_DATA" = "1" ] || [ -n "$RAW_PACKAGE" ]; then
+  RAW_ARGS=()
+  [ -z "$RAW_PACKAGE" ] || RAW_ARGS=(--raw-package "$RAW_PACKAGE")
   run "$PYTHON_BIN" -m pipeline.public_assets --assets "$ASSETS" \
-      ${ENDPOINT:+--hf-endpoint "$ENDPOINT"}
+      "${RAW_ARGS[@]}" ${ENDPOINT:+--hf-endpoint "$ENDPOINT"}
 fi
 if [ -n "$SOURCES" ]; then
   run "$PYTHON_BIN" -m pipeline.prepare_data --sources "$SOURCES" --assets "$ASSETS"
@@ -61,7 +72,7 @@ if [ "$DOWNLOAD" = "1" ]; then
   run "$PYTHON_BIN" -m pipeline.prepare_assets download-models --assets "$ASSETS" --gpu "$GPU" \
       ${ENDPOINT:+--hf-endpoint "$ENDPOINT"}
 fi
-if [ -z "$PACKAGE" ] && [ "$DOWNLOAD" = "0" ] && [ "$DOWNLOAD_DATA" = "0" ] && [ -z "$SOURCES" ] && [ -z "$LOCAL_MODELS" ]; then
+if [ -z "$PACKAGE" ] && [ -z "$RAW_PACKAGE" ] && [ -z "$PREPARED_PACKAGE" ] && [ "$DOWNLOAD" = "0" ] && [ "$DOWNLOAD_DATA" = "0" ] && [ -z "$SOURCES" ] && [ -z "$LOCAL_MODELS" ]; then
   log "nothing selected; writing configs/paths.json for the current asset tree"
   run "$PYTHON_BIN" -m pipeline.prepare_assets write-config --assets "$ASSETS" --gpu "$GPU"
 fi

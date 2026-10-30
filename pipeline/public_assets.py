@@ -132,7 +132,7 @@ def verify_rebuilt(assets):
     print('PUBLIC_INPUTS_MATCH: %d original input files' % len(files), flush=True)
 
 
-def prepare(assets, endpoint='https://huggingface.co'):
+def prepare(assets, endpoint='https://huggingface.co', raw_package=None):
     from pipeline.build_benign import build
     from pipeline.prepare_data import prepare as rebuild
     assets = inside(assets)
@@ -140,6 +140,10 @@ def prepare(assets, endpoint='https://huggingface.co'):
         raise ValueError('prepared data already exist; do not overwrite a frozen dataset')
     lock = json.loads((recipe_root() / 'data_sources.json').read_text(encoding='utf-8'))
     expected = expected_inputs()
+    bundle = None
+    if raw_package is not None:
+        from pipeline.raw_bundle import restore
+        bundle = restore(raw_package, assets)
     raw = inside(assets / 'downloads')
     pope = raw / 'pope'
     for setting in ('random', 'popular', 'adversarial'):
@@ -157,9 +161,16 @@ def prepare(assets, endpoint='https://huggingface.co'):
     names = {row['image_id'] + '.jpg' for row in rows}
     if len(rows) != 5000 or len(names) != 3166:
         raise ValueError('TextVQA requires 5000 validation questions / 3166 images')
-    archive = fetch(lock['textvqa']['images_url'], raw / 'train_val_images.zip',
-                    md5=lock['textvqa']['images_md5'])
-    extract_textvqa(archive, raw / 'textvqa_images', names, expected)
+    if bundle and 'textvqa' in bundle['groups']:
+        for name in names:
+            path = raw / 'textvqa_images' / name
+            if sha(path) != expected['data/images/textvqa/' + name]:
+                raise ValueError('mirrored TextVQA original JPEG differs: %s' % name)
+        print('RAW_TEXTVQA_IMAGES_OK: 3166 original JPEGs; no image transcode', flush=True)
+    else:
+        archive = fetch(lock['textvqa']['images_url'], raw / 'train_val_images.zip',
+                        md5=lock['textvqa']['images_md5'])
+        extract_textvqa(archive, raw / 'textvqa_images', names, expected)
     for name, digest in sorted(expected.items()):
         prefix = 'data/MM-SafetyBench/'
         if name.startswith(prefix) and name.endswith('.parquet'):
@@ -181,7 +192,8 @@ def prepare(assets, endpoint='https://huggingface.co'):
     verify_rebuilt(assets)
     save(assets / 'public_reproduction.json', dict(
         status='PUBLIC_RAW_DOWNLOAD_AND_REBUILD_COMPLETE', sources=lock,
-        external_delivery_package_used=False, pretrained_head_used=False,
+        external_delivery_package_used=bundle is not None, raw_input_bundle=bundle,
+        pretrained_head_used=False,
         old_predictions_used=False, expected_inputs_sha256=sha(recipe_root() / 'inputs.sha256')))
     print('PUBLIC_DATA_READY: POPE=9000 TextVQA=5000 MM-SafetyBench=5040 benign=1680', flush=True)
 
@@ -190,9 +202,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--assets', type=Path, default=common.ROOT / 'assets')
     parser.add_argument('--hf-endpoint', default='https://huggingface.co')
+    parser.add_argument('--raw-package', type=Path, help='verified original inputs, not processed data')
     args = parser.parse_args()
     initialize()
-    prepare(args.assets, args.hf_endpoint)
+    prepare(args.assets, args.hf_endpoint, args.raw_package)
 
 
 if __name__ == '__main__':

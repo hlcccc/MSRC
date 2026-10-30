@@ -92,6 +92,10 @@ def check_data() -> dict:
     if not bench.is_dir():
         raise SystemExit("missing MM-SafetyBench parquet tree: %s" % bench)
     found["mmsafety_parquet"] = dict(categories=len([p for p in bench.iterdir() if p.is_dir()]))
+    assets = Path(data['factual']).parent.parent
+    if (assets / 'prepared_bundle.json').is_file():
+        from pipeline.prepared_bundle import verify
+        found['fixed_partitions'] = verify(assets)
     return found
 
 

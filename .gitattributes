@@ -23,3 +23,8 @@
 /resources/multilayer/fitted/** text eol=lf
 /docs/FLOW_SAFETY_MULTILAYER_*.md text eol=lf
 /scripts/export_multilayer_state.py text eol=lf
+
+# Portable transport recipes retain byte-identical notices and partition files.
+/resources/reproduction/*_NOTICE.md text eol=lf
+/resources/reproduction/raw_bundle.NOTICE.md text eol=lf
+/resources/reproduction/prepared_partitions.sha256 text eol=lf

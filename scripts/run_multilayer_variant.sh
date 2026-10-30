@@ -3,12 +3,13 @@
 set -euo pipefail
 source "$(dirname "$0")/_common.sh"
 set_mode "$@"
-VARIANT=""; RUN_ID=""; GPU="0"
+VARIANT=""; RUN_ID=""; GPU="0"; PREPARED_PACKAGE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) [ -z "$VARIANT" ] || die "duplicate --mode"; VARIANT="$2"; shift 2 ;;
     --run-id) RUN_ID="$2"; shift 2 ;;
     --gpus) GPU="$2"; shift 2 ;;
+    --prepared-package) PREPARED_PACKAGE="$2"; shift 2 ;;
     --execute) shift ;;
     *) die "unknown option: $1" ;;
   esac
@@ -27,7 +28,9 @@ if [ "$VARIANT" = fitted ]; then
   PARAMETERS=(--parameters assets/fitted/factual.json)
   PHASE=apply
 fi
-step bash scripts/02_prepare_assets_data.sh --execute --download-data --download-models --gpus "$GPU"
+DATA_ARGS=(--download-data)
+[ -z "$PREPARED_PACKAGE" ] || DATA_ARGS=(--prepared-package "$PREPARED_PACKAGE")
+step bash scripts/02_prepare_assets_data.sh --execute "${DATA_ARGS[@]}" --download-models --gpus "$GPU"
 step bash scripts/02_prepare_assets_data.sh --check --gpus "$GPU"
 step bash scripts/03_collect_factual.sh --run-id "$RUN_ID" --gpus "$GPU" --mode full --phase collect "${PARAMETERS[@]}" --execute
 step bash scripts/03_collect_factual.sh --run-id "$RUN_ID" --gpus "$GPU" --mode full --phase "$PHASE" --execute
