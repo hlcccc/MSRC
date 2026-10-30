@@ -90,11 +90,11 @@ bash scripts/05_report_multilayer_variant.sh \
   --mode no_fit --run-id ml_no_fit_001 --execute
 ```
 
-打开`runs/ml_no_fit_001/multilayer/joint/report.html`及`summary.json`。程序重新核验本次全部训练来源、六组信号统计与ECE、增强主分支准确率、逐token门控及答案核验，输出六组指标和混淆矩阵。`RUN_COMPLETED`仅表示完成，`ACCEPTANCE_PASS`才表示三个指标全部通过；未达标为`ACCEPTANCE_FAIL`，缺材料或核验失败为`INCOMPLETE`并非零退出。
+打开`runs/ml_no_fit_001/multilayer/joint/report.html`及`summary.json`，核对六组信号数、ECE提升率及主分支准确率、混淆矩阵。程序同时核验训练来源、逐token门控及答案核验。`RUN_COMPLETED`仅表示完成；`ACCEPTANCE_PASS`表示三个指标全部通过，`ACCEPTANCE_FAIL`表示未达标，`INCOMPLETE`表示材料不全或核验失败并非零退出。
 
-预期六组信号数均不少于3种、六组ECE提升率均≥10%、增强预警准确率≥75%；以本次新报告判定。现场训练的参数和数值不要求与既有实验逐位相同。
+通过条件：六组实际信号数均≥3、六组ECE提升率均≥10%、主分支准确率≥75%，以本次报告判定。
 
-完整重测时统一更换`ml_no_fit_001`且不覆盖旧结果。一键入口与上述逐步执行二选一，使用新编号：
+重测须统一更换运行编号，不覆盖旧结果。一键入口与上述步骤二选一：
 
 ```bash
 bash scripts/run_safety_multilayer_no_fit.sh \
