@@ -6,6 +6,8 @@ from pathlib import Path
 import sys
 import types
 from unittest.mock import patch
+from xml.etree import ElementTree
+from zipfile import ZipFile
 
 import pytest
 
@@ -133,3 +135,20 @@ def test_two_published_flows_state_actual_reports_and_preflight_order():
         else:
             assert '02_prepare_fitted' not in text
             assert '--phase fit' in text and '--refit' in text
+
+
+@pytest.mark.parametrize('mode,share,code', [
+    ('FITTED', '1xgi_G8kn6kejfnyZwTph2Q', '2gjx'),
+    ('NO_FIT', '1FdNypm-7R-kMLsv1c8Sxww', 'uaha'),
+])
+def test_real_share_links_match_between_word_and_markdown(mode, share, code):
+    source = common.ROOT / 'docs' / ('FLOW_SAFETY_MULTILAYER_' + mode + '.md')
+    markdown = source.read_text(encoding='utf-8')
+    with ZipFile(source.with_suffix('.docx')) as archive:
+        tree = ElementTree.fromstring(archive.read('word/document.xml'))
+    word = ''.join(tree.itertext())
+    link = 'https://pan.baidu.com/s/' + share + '?pwd=' + code
+    for text in (markdown, word):
+        assert link in text and '\u63d0\u53d6\u7801\uff1a' + code in text
+        assert '<\u672c\u7248\u672c\u5206\u4eab\u94fe\u63a5>' not in text
+        assert '<\u63d0\u53d6\u7801>' not in text

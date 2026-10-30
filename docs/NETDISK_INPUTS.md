@@ -1,5 +1,9 @@
 # 网盘材料说明
 
+有拟合版：[MSRC_fitted](https://pan.baidu.com/s/1xgi_G8kn6kejfnyZwTph2Q?pwd=2gjx)，提取码：2gjx。
+
+无拟合版：[MSRC_no_fit](https://pan.baidu.com/s/1FdNypm-7R-kMLsv1c8Sxww?pwd=uaha)，提取码：uaha。
+
 共用材料：prepared_data文件夹、MSRC-code-netdisk-20261030.zip、SHA256SUMS.txt和两个版本的测试流程。prepared_data内含已处理数据包的三个分卷及parts.json，脚本自动合并、导入，不需手动操作。fitted_only文件夹仅供有拟合版下载；无拟合版现场重新训练、拟合。
 
 数据包包含处理后的问题、图片、参考标注、自建良性样本及固定训练/测试划分。POPE为4,500/4,500条，TextVQA为2,504/2,496条，内容安全为3,360/3,360条。安全训练侧再固定为fit 2,688条、calibration 672条；同一原始问题、同图同问输入不跨集。来源与许可见包内prepared_NOTICE.md。
