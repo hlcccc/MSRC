@@ -110,7 +110,12 @@ def test_two_published_flows_state_actual_reports_and_preflight_order():
         for name in ('signal_report.html', 'calibration_report.html', 'warning_report.html',
                      'signal_summary.csv', 'warning_by_source.csv', 'outputs.json', 'signal_usage/'):
             assert name in text
-        assert 'acceptance-multilayer-delivery-20261030' in text
+        assert 'acceptance-multilayer-unified-20261030' in text
         assert all('\u6307\u6807' + number in text for number in ('1.11', '1.12', '1.13'))
+        assert text.count('## ') == 2
+        steps = [line.split('. ', 1)[0] for line in text.splitlines()
+                 if line[:1].isdigit() and '. ' in line]
+        assert steps == ['1', '2', '3', '4', '5', '6']
+        assert text.index('signal_report.html') > text.index('bash scripts/05_report_multilayer_variant.sh')
         if mode == 'FITTED':
             assert text.index('bash scripts/02_prepare_fitted.sh') < text.index('bash scripts/02_prepare_assets_data.sh')

@@ -1,10 +1,12 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Current multi-layer delivery: `acceptance-multilayer-delivery-20261030`.**
+**Current multi-layer delivery: `acceptance-multilayer-unified-20261030`.**
 The two procedures below match scheme indicators 1.11--1.13. Their final
 `runs/<run-id>/multilayer/joint/report.html` links three independent indicator
 reports, per-sample signal details, source-stratified safety statistics and
 token-event evidence. `outputs.json` in the same directory lists exact paths.
+Each procedure is one complete six-step run, followed by the three indicators'
+report locations; the indicators are not separate execution flows.
 Completed-but-failing acceptance returns exit code 3, not success.
 [Repair and verification scope](docs/MULTILAYER_DELIVERY_REPAIRS_20261030.md).
 
