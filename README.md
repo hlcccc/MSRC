@@ -1,5 +1,16 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
+**Two explicit multi-layer parameter modes (2026-10-30):**
+[supplied fitted state](docs/FLOW_SAFETY_MULTILAYER_FITTED.md) |
+[onsite training and fitting](docs/FLOW_SAFETY_MULTILAYER_NO_FIT.md) |
+[execution-coverage audit](docs/MULTILAYER_TWO_MODES_AUDIT.md).
+Entries: `scripts/run_safety_multilayer_fitted.sh` and
+`scripts/run_safety_multilayer_no_fit.sh`. Both require new factual collection
+and new enhanced safety testing. Omit `--execute` to print a plan. The first
+loads all project-fitted state; the second trains the baseline head and fits
+the added signals onsite. They do not relabel the historical hybrid result as
+a new all-components-fresh acceptance run.
+
 **Independent multi-layer safety extension (2026-10-26):**
 [six-step procedure](docs/FLOW_SAFETY_MULTILAYER.md) |
 [Word procedure](docs/FLOW_SAFETY_MULTILAYER.docx) |
@@ -16,8 +27,9 @@ thresholds are fitted onsite. It is not an all-components-fresh no-fit variant.
 > [Version boundaries and SingGuard rollback](docs/SAFETY_VERSIONS.md).
 > The original SingGuard code is retained at tag
 > `singguard-before-plugguard-20261019`; never mix its operating point or results
-> with this branch. Model weights, trained heads, and experimental predictions
-> are not stored in Git. The [public six-step acceptance flow](docs/ACCEPTANCE_FLOW.md)
+> with this branch. Base-model weights and experimental predictions are not
+> stored in Git; project-fitted state is supplied only for the explicit fitted
+> variants above. The [public six-step acceptance flow](docs/ACCEPTANCE_FLOW.md)
 > downloads public originals, rebuilds the benign inputs from a fixed recipe,
 > and trains all acceptance heads/calibrators afresh, without a local delivery package.
 

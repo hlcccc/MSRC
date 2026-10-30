@@ -19,3 +19,7 @@
 /docs/MULTILAYER_DELIVERY.md text eol=lf
 /scripts/build_multilayer_doc.py text eol=lf
 /scripts/build_multilayer_manifest.py text eol=lf
+/extensions/multilayer/variants.py text eol=lf
+/resources/multilayer/fitted/** text eol=lf
+/docs/FLOW_SAFETY_MULTILAYER_*.md text eol=lf
+/scripts/export_multilayer_state.py text eol=lf

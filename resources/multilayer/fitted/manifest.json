@@ -1,0 +1,10 @@
+{
+  "format": "msrc-multilayer-supplied-state-v1",
+  "files": {
+    "calibration.json": "2f728cd3e62751fb945dd3e229dddaf666b4f5f162b080dc0d52e7bf68277480",
+    "directions.json": "5dbeafc4e2ee0c3a771680ee32b19ad72372aadebe5a498956e859be9ae270b5",
+    "origin.json": "00a502b4bea0083c1223611123350f685b9424e3ecc9ebc27ce76f28c8351cdd"
+  },
+  "contains_test_predictions": false,
+  "contains_base_model_weights": false
+}
