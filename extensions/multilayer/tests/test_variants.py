@@ -56,7 +56,7 @@ class VariantTests(unittest.TestCase):
             root = Path(directory).resolve()
             old_html = root / 'runs/fresh/multilayer/joint/report.html'
             old_html.parent.mkdir(parents=True)
-            for name in ('report.html', 'signal_report.html', 'calibration_report.html', 'warning_report.html'):
+            for name in ('report.html', 'report.md', 'signal_report.html', 'calibration_report.html', 'warning_report.html'):
                 (old_html.parent / name).write_text('ACCEPTANCE_PASS (old synthetic fixture)')
             with patch.object(runner.common, 'ROOT', root), \
                  patch.object(runner.common, 'runs_dir', return_value=root / 'runs'), \
@@ -67,8 +67,10 @@ class VariantTests(unittest.TestCase):
                 summary = runner.load(root / 'runs/fresh/multilayer/joint/summary.json')
                 self.assertEqual(summary['verdict'], 'INCOMPLETE')
                 self.assertIsNone(summary['acceptance_pass'])
-                for name in ('report.html', 'signal_report.html', 'calibration_report.html', 'warning_report.html'):
-                    self.assertIn('INCOMPLETE', (old_html.parent / name).read_text())
+                for name in ('report.html', 'report.md', 'signal_report.html', 'calibration_report.html', 'warning_report.html'):
+                    text = (old_html.parent / name).read_text(encoding='utf-8')
+                    self.assertIn('INCOMPLETE', text)
+                    self.assertNotIn('ACCEPTANCE_PASS', text)
                 self.assertFalse(runner.load(root / 'runs/fresh/multilayer/joint/outputs.json')['complete'])
 
     def test_wrong_mode_preparation_is_rejected(self):
@@ -122,10 +124,16 @@ class VariantTests(unittest.TestCase):
                     self.assertEqual(result['acceptance_pass'], expected == 'PASS')
                     self.assertEqual(result['factual_parameter_mode'], factual_mode)
                     self.assertTrue((experiment.root / 'joint/report.html').is_file())
+                    self.assertTrue((experiment.root / 'joint/report.md').is_file())
+                    self.assertEqual(result['calibration_aggregate']['passed_cells'], 6 if gain is not None else 0)
+                    self.assertIn('六组平均', (experiment.root / 'joint/report.md').read_text(encoding='utf-8'))
                     self.assertEqual(runner.load(experiment.root / 'joint/summary.json')['verdict'], expected)
                     inventory = runner.load(experiment.root / 'joint/outputs.json')
                     for artifact in inventory['artifacts']:
                         self.assertTrue((root / artifact['path']).exists(), artifact)
+                        if artifact['kind'] == 'file':
+                            self.assertEqual(artifact['sha256'], runner.sha(root / artifact['path']))
+                    self.assertIn('joint_markdown', {item['key'] for item in inventory['artifacts']})
                     for name in ('signal_report.html', 'calibration_report.html', 'warning_report.html',
                                  'warning_by_source.csv', 'signal_summary.csv'):
                         self.assertTrue((experiment.root / 'joint' / name).is_file())

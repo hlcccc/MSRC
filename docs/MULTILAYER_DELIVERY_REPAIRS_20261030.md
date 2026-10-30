@@ -4,6 +4,8 @@
 
 文档顺序整理版为`acceptance-multilayer-unified-20261030`：两版各自改为同一运行编号下连续六步执行，完成后集中列出三个指标的报告及证据路径；不再按指标分成三个测试流程。此次整理不改变运行脚本、参数、算法、指标判定或报告生成位置。
 
+当前报告与步骤细化版为`acceptance-multilayer-reports-20261030`。两版均细化为八步，明确区分代码下载、环境安装、数据及模型准备、测试、报告生成和取回打开结果；测试命令的相对顺序及两个参数模式不变。汇总脚本新增`report.md`及六组等权平均行，使用完整精度计算；六组逐组达标要求不变，模型、训练过程、冻结参数和算法核心不变。
+
 ## 实际修复
 
 1. 有拟合版使用公开参数所属的逐字节冻结采集入口`collect_evidence_fitted.py`；无拟合版保留现用`collect_evidence.py`。参数源码合同仍逐项严格检查，未替换参数、未跳过校验、未在测试侧重新拟合。实际执行入口及哈希记入每次事实性`protocol.json`。参数准备及源码配对检查提前到大规模模型和数据下载前。
@@ -23,6 +25,7 @@
 | 逐token分数、判定与放行记录 | `multilayer/experiments/multilayer_001/records/test/` | 增强测试 |
 | 答案验证原始输出和标签 | `multilayer/experiments/multilayer_001/records/answers/` | 答案核验 |
 | 三指标总报告 | `multilayer/joint/report.html` | 最终汇总 |
+| 可直接阅读的Markdown汇总及平均提升率 | `multilayer/joint/report.md` | 最终汇总 |
 | 功能演示报告与六组信号数 | `multilayer/joint/signal_report.html`及`signal_summary.csv` | 最终汇总 |
 | 校准性能报告 | `multilayer/joint/calibration_report.html` | 最终汇总 |
 | 生成中预警报告与四来源统计 | `multilayer/joint/warning_report.html`及`warning_by_source.csv` | 最终汇总 |
@@ -39,3 +42,10 @@
 - 已拟合版冻结采集器不实现后续新增的共享GPU占空比控制，因此不能加载共享调度策略冒充同一流程；使用未加载该共享策略的执行环境。无拟合版的现用调度功能保留。
 
 两份第七章Word保留原参考文档的字体、样式和蓝色正文，仅包含我方三项指标及所需操作。截图标注为历史日志/历史实验示例，不作为新运行成绩。原参考方案文件不覆盖。
+
+## 本次报告改动的检查
+
+- 汇总使用六组未四舍五入的相对提升率等权平均，不以均值代替逐组验收，不把“平均ECE的降低比例”混作平均提升率。缺组、未定义或非有限提升率不得静默剔除后求平均。
+- 新增Markdown进入输出清单并记录哈希。联合审计失败时同时重写Markdown为INCOMPLETE，避免残留旧的通过结论。
+- 在`/mnt/data/HLC/msrc_report_clarity_20261030`的新隔离目录，仅使用CPU执行项目和多层模块回归；不执行模型推理，不生成新增实验成绩。Word实际导出PDF检查，确认两个截图及平均行显示正常。
+- 便于查看的历史结果示例来自原有六组全量结果和原有多层混合参数实验，来源分开标注，未拼接成同一次新环境验收。

@@ -108,14 +108,17 @@ def test_two_published_flows_state_actual_reports_and_preflight_order():
     for mode in ('FITTED', 'NO_FIT'):
         text = (common.ROOT / 'docs' / ('FLOW_SAFETY_MULTILAYER_' + mode + '.md')).read_text(encoding='utf-8')
         for name in ('signal_report.html', 'calibration_report.html', 'warning_report.html',
-                     'signal_summary.csv', 'warning_by_source.csv', 'outputs.json', 'signal_usage/'):
+                     'signal_summary.csv', 'warning_by_source.csv', 'outputs.json', 'signal_usage/', 'report.md'):
             assert name in text
-        assert 'acceptance-multilayer-unified-20261030' in text
+        assert 'acceptance-multilayer-reports-20261030' in text
         assert all('\u6307\u6807' + number in text for number in ('1.11', '1.12', '1.13'))
         assert text.count('## ') == 2
         steps = [line.split('. ', 1)[0] for line in text.splitlines()
                  if line[:1].isdigit() and '. ' in line]
-        assert steps == ['1', '2', '3', '4', '5', '6']
+        assert steps == ['1', '2', '3', '4', '5', '6', '7', '8']
+        assert 'scp -r USER@HOST:PROJECT_DIR/runs/' in text
+        assert 'Invoke-Item ./MSRC_results/' in text
+        assert 'REPORT_MD' in text and 'ENV_OK' in text
         assert text.index('signal_report.html') > text.index('bash scripts/05_report_multilayer_variant.sh')
         if mode == 'FITTED':
             assert text.index('bash scripts/02_prepare_fitted.sh') < text.index('bash scripts/02_prepare_assets_data.sh')
