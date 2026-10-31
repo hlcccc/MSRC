@@ -314,6 +314,8 @@ def joint_report(experiment, mode):
     print(json.dumps(dict(indicator='1.13', arm='temporal_hold', **primary)), flush=True)
     print('REPORT_HTML ' + str(experiment.root / 'joint/report.html'), flush=True)
     print('REPORT_MD ' + str(experiment.root / 'joint/report.md'), flush=True)
+    for name in ('signal_report.md', 'calibration_report.md', 'warning_report.md'):
+        print('INDICATOR_REPORT_MD ' + str(experiment.root / 'joint' / name), flush=True)
     print('OUTPUTS_MANIFEST ' + str(experiment.root / 'joint/outputs.json'), flush=True)
     print('RUN_COMPLETED ' + experiment.root.parent.name, flush=True)
     print('ACCEPTANCE_PASS' if result['acceptance_pass'] else 'ACCEPTANCE_FAIL', flush=True)
@@ -369,9 +371,10 @@ def main():
                     common.inside(root / 'joint' / name).write_text(page(
                         'MSRC acceptance: INCOMPLETE', '<p>No acceptance conclusion. Fix the audit error before retrying.</p><pre>'
                         + html.escape(repr(error)) + '</pre>'), encoding='utf-8')
-                common.inside(root / 'joint/report.md').write_text(
-                    '# MSRC 指标测试结果：INCOMPLETE\n\n本次材料核验未完成，不能作出验收结论。\n\n'
-                    + json.dumps(dict(error=repr(error)), ensure_ascii=False) + '\n', encoding='utf-8')
+                for name in ('report.md', 'signal_report.md', 'calibration_report.md', 'warning_report.md'):
+                    common.inside(root / 'joint' / name).write_text(
+                        '# MSRC 指标测试结果：INCOMPLETE\n\n本次材料核验未完成，不能作出验收结论。\n\n'
+                        + json.dumps(dict(error=repr(error)), ensure_ascii=False) + '\n', encoding='utf-8')
                 common.save(root / 'joint/outputs.json', dict(format='msrc-acceptance-outputs-v1',
                     complete=False, verdict='INCOMPLETE', artifacts=[]))
                 print('INCOMPLETE ' + str(root / 'joint/summary.json'), flush=True)

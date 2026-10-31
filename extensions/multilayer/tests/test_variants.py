@@ -56,7 +56,8 @@ class VariantTests(unittest.TestCase):
             root = Path(directory).resolve()
             old_html = root / 'runs/fresh/multilayer/joint/report.html'
             old_html.parent.mkdir(parents=True)
-            for name in ('report.html', 'report.md', 'signal_report.html', 'calibration_report.html', 'warning_report.html'):
+            for name in ('report.html', 'report.md', 'signal_report.html', 'calibration_report.html', 'warning_report.html',
+                         'signal_report.md', 'calibration_report.md', 'warning_report.md'):
                 (old_html.parent / name).write_text('ACCEPTANCE_PASS (old synthetic fixture)')
             with patch.object(runner.common, 'ROOT', root), \
                  patch.object(runner.common, 'runs_dir', return_value=root / 'runs'), \
@@ -67,7 +68,8 @@ class VariantTests(unittest.TestCase):
                 summary = runner.load(root / 'runs/fresh/multilayer/joint/summary.json')
                 self.assertEqual(summary['verdict'], 'INCOMPLETE')
                 self.assertIsNone(summary['acceptance_pass'])
-                for name in ('report.html', 'report.md', 'signal_report.html', 'calibration_report.html', 'warning_report.html'):
+                for name in ('report.html', 'report.md', 'signal_report.html', 'calibration_report.html', 'warning_report.html',
+                             'signal_report.md', 'calibration_report.md', 'warning_report.md'):
                     text = (old_html.parent / name).read_text(encoding='utf-8')
                     self.assertIn('INCOMPLETE', text)
                     self.assertNotIn('ACCEPTANCE_PASS', text)
@@ -134,9 +136,23 @@ class VariantTests(unittest.TestCase):
                         if artifact['kind'] == 'file':
                             self.assertEqual(artifact['sha256'], runner.sha(root / artifact['path']))
                     self.assertIn('joint_markdown', {item['key'] for item in inventory['artifacts']})
+                    for key, indicator in (('signal_markdown', '1.11'), ('calibration_markdown', '1.12'),
+                                           ('warning_markdown', '1.13')):
+                        item = next(item for item in inventory['artifacts'] if item['key'] == key)
+                        self.assertEqual(item['indicator'], indicator)
                     for name in ('signal_report.html', 'calibration_report.html', 'warning_report.html',
+                                 'signal_report.md', 'calibration_report.md', 'warning_report.md',
                                  'warning_by_source.csv', 'signal_summary.csv'):
                         self.assertTrue((experiment.root / 'joint' / name).is_file())
+                    for name, expected_status in (('signal_report.md', '达标'),
+                            ('calibration_report.md', '达标' if gain is not None else '未达标'),
+                            ('warning_report.md', '达标' if accuracy >= .75 else '未达标')):
+                        text = (experiment.root / 'joint' / name).read_text(encoding='utf-8')
+                        self.assertIn('**数值判定：' + expected_status + '**', text)
+                        self.assertIn('运行编号：`fresh`', text)
+                        self.assertIn('## 证据与相关报告', text)
+                    self.assertIn('(../../factual/signal_usage/0.csv)',
+                        (experiment.root / 'joint/signal_report.md').read_text(encoding='utf-8'))
 
     def test_no_fit_recipe_never_downloads_project_parameters_on_its_branch(self):
         text = (runner.common.ROOT / 'scripts/run_multilayer_variant.sh').read_text()

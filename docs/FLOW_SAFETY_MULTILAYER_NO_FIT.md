@@ -90,7 +90,7 @@ cat runs/ml_no_fit_001/multilayer/joint/report.md
 
 RUN_COMPLETED表示流程完成；ACCEPTANCE_PASS表示三个指标均达标，ACCEPTANCE_FAIL表示有指标未达标。未完成时显示INCOMPLETE。
 
-三个指标报告均在runs/ml_no_fit_001/multilayer/joint/：指标1.11为signal_report.html；指标1.12为calibration_report.html，包含六组结果及平均提升率；指标1.13为warning_report.html。总汇总为report.md和report.html。
+三个指标报告均在runs/ml_no_fit_001/multilayer/joint/：指标1.11为signal_report.md和signal_report.html；指标1.12为calibration_report.md和calibration_report.html，包含六组结果及平均提升率；指标1.13为warning_report.md和warning_report.html。每份MD均包含验收要求、实测数值、对应指标的数值判定和证据链接。总汇总为report.md和report.html；原始结果仍保留CSV/JSON格式。
 
 ## 8 取回结果并打开报告
 

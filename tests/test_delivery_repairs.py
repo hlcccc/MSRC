@@ -110,6 +110,7 @@ def test_two_published_flows_state_actual_reports_and_preflight_order():
     for mode in ('FITTED', 'NO_FIT'):
         text = (common.ROOT / 'docs' / ('FLOW_SAFETY_MULTILAYER_' + mode + '.md')).read_text(encoding='utf-8')
         for name in ('signal_report.html', 'calibration_report.html', 'warning_report.html',
+                     'signal_report.md', 'calibration_report.md', 'warning_report.md',
                      'report.md', 'report.html'):
             assert name in text
         assert all('\u6307\u6807' + number in text for number in ('1.11', '1.12', '1.13'))

@@ -92,3 +92,45 @@ def test_markdown_preserves_current_safety_source_counts():
 def test_failing_safety_result_says_below_not_negative_above():
     assert reports.percentage_point_comparison(.7, .75) == '低5.00个百分点'
     assert reports.percentage_point_comparison(.75, .75) == '高0.00个百分点'
+
+
+def test_individual_markdown_reports_use_actual_metrics_without_mutating_inputs():
+    factual, warning = cells(), safety()
+    before = deepcopy((factual, warning))
+    rendered = reports.indicator_markdown(factual, warning, context='历史实测汇总，不代表新一轮验收。')
+    assert set(rendered) == {'signals', 'calibration', 'warning'}
+    for key, number in reports.INDICATORS.items():
+        assert rendered[key].startswith('# 指标' + number)
+        assert '历史实测汇总' in rendered[key]
+        assert '**数值判定：达标**' in rendered[key]
+    assert '| LLaVA-1.5-13B | POPE | 10 | 6 | ≥3种 | 达标 |' in rendered['signals']
+    assert '六组平均提升率：55.00%；最低提升率：20.00%' in rendered['calibration']
+    assert '| 全部测试样本 | 100 | 70 | 20 | 5 | 5 | 90.00% |' in rendered['warning']
+    assert '高15.00个百分点' in rendered['warning']
+    assert '不是去掉PlugGuard的独立版' in rendered['warning']
+    assert '未包含分来源统计' in rendered['warning']
+    assert (factual, warning) == before
+
+
+def test_individual_markdown_does_not_hide_failed_cell_or_warning():
+    factual, warning = cells(), safety()
+    factual[0]['minimum_actual_signals_per_test_sample'] = 2
+    factual[0]['relative_improvement'] = .099999
+    warning['primary']['temporal_hold']['accuracy'] = .749999
+    rendered = reports.indicator_markdown(factual, warning)
+    assert all('**数值判定：未达标**' in text for text in rendered.values())
+    assert '达到要求：5/6组' in rendered['calibration']
+
+
+def test_individual_markdown_incomplete_grid_cannot_claim_pass():
+    rendered = reports.indicator_markdown(cells()[:5], safety())
+    assert '**数值判定：未完成**' in rendered['signals']
+    assert '**数值判定：未完成**' in rendered['calibration']
+
+
+def test_individual_markdown_preserves_source_confusion_counts():
+    warning = safety()
+    warning['by_source'] = dict(temporal_hold={'fixture': dict(warning['primary']['temporal_hold'])})
+    text = reports.indicator_markdown(cells(), warning)['warning']
+    assert '| fixture | 100 | 70 | 20 | 5 | 5 | 90.00% |' in text
+    assert '未包含分来源统计' not in text
