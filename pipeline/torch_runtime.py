@@ -44,12 +44,19 @@ def prepare(offline_wheels=None):
         return
     if offline_wheels:
         folder = Path(offline_wheels).resolve(strict=True)
+        locations = [folder]
+        if (folder / "cu128").is_dir():
+            locations.insert(0, (folder / "cu128").resolve(strict=True))
         missing = [name for name, version in desired.items()
-                   if not any(folder.glob(name + "-" + version + "-*.whl"))]
+                   if not any(path.is_file() for location in locations
+                              for path in location.glob(name + "-" + version + "-*.whl"))]
         if missing:
             raise RuntimeError("Blackwell requires the pinned +cu128 torch and torchvision wheels; "
-                               "the offline wheel directory is missing: " + ", ".join(missing))
-        source = ["--no-index", "--find-links", str(folder)]
+                               "the offline wheel directory is missing: " + ", ".join(missing)
+                               + "; supply the wheels and their dependencies in " + str(folder / "cu128"))
+        source = ["--no-index"]
+        for location in locations:
+            source.extend(["--find-links", str(location)])
     else:
         source = ["--index-url", CUDA128_INDEX]
     command = [sys.executable, "-m", "pip", "install",

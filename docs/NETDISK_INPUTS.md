@@ -18,7 +18,27 @@
 | `LICENSES/` + `MODELS_NOTICE.md` | 各模型许可全文与再分发声明 |
 | `docs/` | 两版测试流程（Word 与 Markdown） |
 
+## A100与RTX 5090的软件环境
+
+| 项目 | 历史A100采集环境 | 本次RTX 5090已验证环境 |
+| --- | --- | --- |
+| Python | CPython 3.10系列 | CPython 3.10.19 |
+| PyTorch | 2.7.1+cu126 | 2.7.1+cu128 |
+| torchvision | 0.22.1，对应cu126构建 | 0.22.1+cu128 |
+| PyTorch CUDA运行时 | 12.6 | 12.8 |
+| Transformers | 5.13.0 | 5.13.0 |
+
+`cu126`是历史A100环境的有效记录，不是所有GPU通用的安装要求。RTX 5090使用`sm_120`架构，本项目已验证上述cu128构建；仅安装系统CUDA 12.8或看到`nvidia-smi`显示CUDA 12.8，并不能证明PyTorch构建支持5090。
+
+环境安装命令不变。`scripts/01_setup_envs.sh`调用`pipeline.torch_runtime`自动选择构建；联网时从PyTorch官方cu128索引安装。离线整包保留`env/wheels/`中的原cu126及通用依赖，另在`env/wheels/cu128/`放置`torch 2.7.1+cu128`、`torchvision 0.22.1+cu128`及它们完整的Linux x86_64/CPython 3.10依赖。5090分支自动读取两个目录，其他GPU不会因新增子目录而更换原参考构建。只含cu126的旧离线包不满足5090离线安装要求。
+
+离线模式缺包时明确失败，不会偷偷联网或降级为cu126；补包后必须更新`env/SHA256SUMS.txt`及引用它的上级清单。发布前需在干净Linux/CPython 3.10环境确认全部cu128依赖可用，不能仅凭两个torch文件名认定完整。PyTorch官方安装来源见[历史版本页](https://pytorch.org/get-started/previous-versions/#v271)。
+
+脚本不会安装或升级宿主NVIDIA驱动，服务器须预装支持5090的驱动。最终检查会执行真实CUDA运算和BF16矩阵乘法，通过后才打印`ENV_OK`，版本与架构记录在`MSRC/assets/environment.json`。`ENV_OK`只证明环境检查通过，不是三个指标的达标结论。
+
 ## 三张校验表
+
+三张清单中的文件路径均须以离线交付包根目录为基准：模型条目以`models/`开头，环境条目以`env/`开头；下列命令不会自动切换到清单所在目录。发布时须逐一按下列命令验证。
 
 ```bash
 cd ~/MSRC_offline_20261030

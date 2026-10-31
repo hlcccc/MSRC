@@ -5,6 +5,11 @@ One folder carries the code, the prepared data with fixed train/test partitions,
 project-fitted parameters, the four pinned base models, the offline dependency wheels and
 the three SHA256 tables, so acceptance runs without HuggingFace, GitHub or PyPI access:
 [offline package notes](docs/NETDISK_INPUTS.md).
+RTX 5090 requires the pinned CUDA 12.8 builds. The same setup command selects
+them automatically; offline publishers must also supply the complete
+`env/wheels/cu128/` dependency set, not just the older A100 CUDA 12.6 wheels.
+The installation performs real CUDA and BF16 matrix-operation checks before
+reporting `ENV_OK`. See the hardware-specific environment table in the package notes.
 The prepared package skips raw-data preprocessing and benign-image construction
 on the acceptance machine. Its input/image hashes and fixed partitions match
 the public rebuild and unchanged acceptance algorithms. It contains no model

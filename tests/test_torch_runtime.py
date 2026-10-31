@@ -63,3 +63,36 @@ def test_offline_cuda128_pair_uses_only_local_wheels(tmp_path, monkeypatch):
     runtime.prepare(tmp_path)
     assert calls[0][-3:] == ["--no-index", "--find-links", str(tmp_path.resolve())]
     assert "--index-url" not in calls[0]
+
+
+def test_offline_cuda128_subdirectory_keeps_common_wheels_available(tmp_path, monkeypatch):
+    configure_blackwell(monkeypatch)
+    alternate = tmp_path / "cu128"
+    alternate.mkdir()
+    for name, version in (("torch", "2.7.1"), ("torchvision", "0.22.1")):
+        (alternate / (name + "-" + version + "+cu128-cp310-cp310-linux_x86_64.whl")).touch()
+    calls = []
+    monkeypatch.setattr(runtime.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    runtime.prepare(tmp_path)
+    assert calls[0][-5:] == ["--no-index", "--find-links", str(alternate.resolve()),
+                              "--find-links", str(tmp_path.resolve())]
+    assert "torch==2.7.1+cu128" in calls[0]
+    assert "--index-url" not in calls[0]
+
+
+def test_incomplete_cuda128_subdirectory_does_not_fall_back_to_cu126(tmp_path, monkeypatch):
+    configure_blackwell(monkeypatch)
+    alternate = tmp_path / "cu128"
+    alternate.mkdir()
+    (alternate / "torch-2.7.1+cu128-cp310-cp310-linux_x86_64.whl").touch()
+    (tmp_path / "torchvision-0.22.1-cp310-cp310-linux_x86_64.whl").touch()
+    monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **kw: pytest.fail("unexpected install"))
+    with pytest.raises(RuntimeError, match="missing: torchvision"):
+        runtime.prepare(tmp_path)
+
+
+def test_reference_gpu_does_not_select_cuda128_subdirectory(tmp_path, monkeypatch):
+    (tmp_path / "cu128").mkdir()
+    monkeypatch.setattr(runtime, "needs_cuda128", lambda: False)
+    monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **kw: pytest.fail("unexpected install"))
+    runtime.prepare(tmp_path)
