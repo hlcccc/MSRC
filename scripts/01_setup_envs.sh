@@ -69,6 +69,9 @@ fi
 
 PIP=("$VENV/bin/python" -m pip)
 run "${PIP[@]}" install pip==25.2 wheel==0.45.1 "${PIP_SOURCE[@]}"
+TORCH_RUNTIME_ARGS=()
+[ -z "$OFFLINE_WHEELS" ] || TORCH_RUNTIME_ARGS=(--offline-wheels "$OFFLINE_WHEELS")
+run "$VENV/bin/python" -B -m pipeline.torch_runtime "${TORCH_RUNTIME_ARGS[@]}"
 run "${PIP[@]}" install -r "$REQ" "${PIP_SOURCE[@]}"
 run "${PIP[@]}" install -e "$ROOT" --no-deps "${PIP_SOURCE[@]}"
 

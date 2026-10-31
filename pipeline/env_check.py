@@ -53,10 +53,14 @@ def runtime_smoke(cpu_only=False):
         tensor = torch.ones(1, device='cuda', dtype=torch.bfloat16)
         if (tensor + tensor).item() != 2:
             raise RuntimeError('CUDA kernel smoke check failed')
+        matrix = torch.eye(16, device='cuda', dtype=torch.bfloat16)
+        if not torch.equal(matrix @ matrix, matrix):
+            raise RuntimeError('CUDA bfloat16 matrix multiplication smoke check failed')
         torch.cuda.synchronize()
         result['cuda'] = dict(device=torch.cuda.get_device_name(0),
             capability=list(torch.cuda.get_device_capability(0)),
-            build=torch.version.cuda, kernel_smoke=True, bfloat16=True)
+            build=torch.version.cuda, kernel_smoke=True, bfloat16=True,
+            matmul_smoke=True, compiled_architectures=torch.cuda.get_arch_list())
     return result
 
 
