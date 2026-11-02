@@ -19,20 +19,21 @@ def collect_chunk(provider, rows, *, batch_size, k=3, donor_only=False, budget=N
         raise ValueError('duplicate sample ID')
     images = [row['image'] for row in rows]
     primary = generate_many(provider, images, [primary_prompt(row) for row in rows], batch_size=batch_size,
-                            collect_scores=not donor_only, budget=budget, adaptive=adaptive)
+                            collect_scores=not donor_only, budget=budget, adaptive=adaptive, stage='primary')
     if donor_only:
         return [dict(row, answer=sample.text, model_calls=1, donor_only=True)
                 for row, sample in zip(rows, primary)]
     prompts = PromptSet()
-    def extra(templates, sampled=False):
+    def extra(templates, stage, sampled=False):
         requests = [(row['image'], template.format(q=row['question'], a=sample.text))
                     for row, sample in zip(rows, primary) for template in templates]
         values = generate_many(provider, [r[0] for r in requests], [r[1] for r in requests],
-                               batch_size=batch_size, do_sample=sampled, collect_scores=False, budget=budget, adaptive=adaptive)
+                               batch_size=batch_size, do_sample=sampled, collect_scores=False,
+                               budget=budget, adaptive=adaptive, stage=stage)
         return [values[i * len(templates):(i + 1) * len(templates)] for i in range(len(rows))]
-    views = extra(prompts.views)
-    resamples = extra([prompts.views[0]] * k, sampled=True)
-    verifications = extra(prompts.probes)
+    views = extra(prompts.views, 'views')
+    resamples = extra([prompts.views[0]] * k, 'resamples', sampled=True)
+    verifications = extra(prompts.probes, 'verifications')
     results = []
     for i, (row, sample) in enumerate(zip(rows, primary)):
         gold = row.get('gold_answers') or []

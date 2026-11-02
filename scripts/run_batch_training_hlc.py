@@ -101,7 +101,7 @@ def main():
         python = '/mnt/data/HLC/msrc_safety_no_fit_fresh_20261023/MSRC/.venv/bin/python'
         base = [python, '-B', '-u']
         steps = [(phase, base + ['-m', 'pipeline.batch_training', '--run-id', args.run_id, '--phase', phase])
-                 for phase in ('prepare', 'profile', 'collect', 'evaluate')]
+                 for phase in ('prepare', 'optimization_check', 'profile', 'collect', 'evaluate')]
         steps += [('baseline_safety_training', base + ['-m', 'pipeline.plugguard',
                     '--out', 'runs/' + args.run_id + '/safety', '--refit'])]
         steps += [('multilayer_' + phase, base + ['-m', 'extensions.multilayer.batched',
@@ -126,7 +126,7 @@ def main():
             receipt = pause_named_job(audit)
             for number, (name, command) in enumerate(steps, 1):
                 phase_env = dict(env)
-                if number >= 5:
+                if name not in ('prepare', 'optimization_check', 'profile', 'collect', 'evaluate'):
                     phase_env.update(MSRC_SAFETY_BACKEND='plugguard',
                         MSRC_GPU_SHARE_POLICY=str(audit / 'shared_gpu_policy.json'))
                 state.update(state='RUNNING', phase=name, command=command, updated_ns=time.time_ns())

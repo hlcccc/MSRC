@@ -28,10 +28,28 @@ candidate. Each candidate has enough development inputs to exercise its actual
 batch size; the fastest successful candidate is chosen. Primary predictions
 are saved for auditing batch-versus-single-request differences.
 
+InternVL additionally caches official image preprocessing and projected visual
+embeddings in a bounded 1 GiB CPU LRU cache. Cache entries are local to one
+frozen model/processor instance and include image file identity and timestamps.
+No answers, language-model KV states, labels or risk scores are cached. Image
+resolution, patch count, prompts, token limits and the eight feature functions
+are unchanged. Deterministic requests may be grouped by estimated input length;
+their outputs are restored to the original request order. Sampled requests keep
+their original order. Per-stage preparation, generation, scoring and padding
+counters are written alongside the throughput measurements.
+
+Before profiling or collection, a fail-closed development-only GPU audit compares
+uncached, cold-cache and warm-cache full evidence for both datasets, including
+all eleven generated texts, available numeric readings and signal values.
+Numeric tolerance is absolute 1e-6 / relative 1e-5; texts must match exactly in
+this batch-1 audit. Failure stops the controller. This is a targeted cache audit,
+not a proof of identical stochastic outputs under different batch sizes.
+
 With paths configured and the validated environment installed:
 
 ```bash
 python -B -m pipeline.batch_training --run-id batch_train_001 --phase prepare
+python -B -m pipeline.batch_training --run-id batch_train_001 --phase optimization_check
 python -B -m pipeline.batch_training --run-id batch_train_001 --phase profile
 python -B -m pipeline.batch_training --run-id batch_train_001 --phase collect
 python -B -m pipeline.batch_training --run-id batch_train_001 --phase evaluate
@@ -45,6 +63,10 @@ MSRC_JUDGE_BATCH_SIZE=4 python -B -m pipeline.batch_training --run-id batch_trai
 The shared A100 experiment caps its allocator at 24 GiB, reserves 8 GiB for
 other jobs, and yields half its measured work time. It does not terminate
 another user's process. This is not a measurement on an exclusive RTX 5090.
+Candidate batches use the same fixed development cohort within each model and
+dataset (at least 16 inputs for InternVL and 64 for Qwen, plus the longest
+question). InternVL profiling stops at 16 under the shared 24 GiB cap. These
+are tested candidates, not a claim of the hardware's absolute maximum batch.
 
 Outputs: `runs/batch_train_001/factual/batch_profile.json` contains measured
 batch throughput, memory and factual-stage projections. These are projections,

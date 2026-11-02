@@ -90,7 +90,9 @@ def prepare(root):
         batch_sampling_protocol='batch-dependent global RNG; seed reset before each fresh cell',
         oom_policy='halve batch on OOM; restore RNG before retry; never truncate or drop samples',
         auxiliary_collection='fresh primary answers only; no auxiliary fitting',
-        extra_generation_scores_omitted=True, base_model_weights_frozen=True)
+        extra_generation_scores_omitted=True, base_model_weights_frozen=True,
+        image_cache='bounded 1 GiB CPU cache of preprocessing and frozen InternVL visual embeddings only',
+        cached_answers=False, greedy_length_grouping=True, sampled_request_order_preserved=True)
     common.save(root / 'protocol.json', protocol)
 
 
@@ -118,12 +120,127 @@ def make_provider(family, budget):
     with budget.work('load_' + family):
         provider.load()
     provider._model.requires_grad_(False)
+    provider._batch_measurements = {}
+    if family == 'internvl':
+        from msrc.providers.internvl_cache import InternVLInputCache
+        provider._batch_input_cache = InternVLInputCache(provider)
+        provider._batch_sort_greedy = True
     return provider
+
+
+def attention_backends(provider):
+    config = provider._model.config
+    result = {'model': getattr(config, '_attn_implementation', None)}
+    for name in ('vision_config', 'text_config'):
+        result[name] = getattr(getattr(config, name, None), '_attn_implementation', None)
+    return result
+
+
+def optimization_check(root, args):
+    import math
+    from msrc.batch_collection import collect_chunk
+    from msrc.signals import Evidence, build_report
+    verify(root)
+    import torch
+    torch.set_num_threads(2)
+    budget = BatchBudget(torch, args.cap_gib, shared_duty=args.duty)
+    provider = make_provider('internvl', budget)
+    provider._batch_sort_greedy = False
+    result = dict(complete=False, development_only=True, tolerance=dict(abs=1e-6, rel=1e-5),
+        changed_prompts=False, changed_image_resolution=False, changed_token_budget=False,
+        attention_backends=attention_backends(provider), cases=[])
+    path = root / 'optimization_check.json'
+    if path.exists():
+        raise ValueError('optimization audit already exists; preserve its results')
+    def payload(row):
+        evidence = Evidence.from_dict(row['evidence'])
+        values = [evidence.primary, *evidence.views, *evidence.resamples, *evidence.verifications]
+        return dict(texts=[sample.text for sample in values],
+            readings=[[sample.sequence_confidence, sample.sequence_entropy, sample.first_token_margin]
+                      for sample in values], ocr=evidence.ocr_texts,
+            signals=[dict(name=s.name, risk=s.risk, available=s.available)
+                     for s in build_report(evidence).signals])
+    def compare(left, right, where='root'):
+        if isinstance(left, dict):
+            if not isinstance(right, dict) or left.keys() != right.keys():
+                raise ValueError('cache field mismatch: ' + where)
+            for key in left:
+                compare(left[key], right[key], where + '.' + key)
+        elif isinstance(left, list):
+            if not isinstance(right, list) or len(left) != len(right):
+                raise ValueError('cache list mismatch: ' + where)
+            for i, (a, b) in enumerate(zip(left, right)):
+                compare(a, b, where + '.' + str(i))
+        elif isinstance(left, float):
+            if not math.isclose(left, right, abs_tol=1e-6, rel_tol=1e-5):
+                raise ValueError('cache numeric mismatch: ' + where + ': ' + repr((left, right)))
+        elif left != right:
+            raise ValueError('cache value mismatch: ' + where + ': ' + repr((left, right)))
+    try:
+        for dataset in ('pope', 'textvqa'):
+            dev = [row for row in common.read_rows(root / 'inputs' / (dataset + '.jsonl'))
+                   if row['acceptance_split'] == 'dev']
+            selected = [dev[0], dev[len(dev)//2]]
+            case = dict(dataset=dataset, ids=[row['id'] for row in selected], batch_size=1)
+            result['cases'].append(case)
+            reference = None
+            from msrc.providers.internvl_cache import InternVLInputCache
+            cache = InternVLInputCache(provider)
+            for mode in ('uncached', 'cached_cold', 'cached_warm'):
+                provider._batch_input_cache = None if mode == 'uncached' else cache
+                provider._batch_measurements = {}
+                torch.manual_seed(common.SEED)
+                before_work, before_idle = budget.work_seconds, budget.idle_seconds
+                started = time.perf_counter()
+                rows = collect_chunk(provider, selected, batch_size=1, budget=budget, adaptive=False)
+                current = [payload(row) for row in rows]
+                case[mode] = dict(elapsed_seconds=time.perf_counter()-started,
+                    work_seconds=budget.work_seconds-before_work,
+                    voluntary_idle_seconds=budget.idle_seconds-before_idle,
+                    stages=provider._batch_measurements, payload=current,
+                    cache=cache.snapshot() if mode != 'uncached' else None)
+                if reference is None:
+                    reference = current
+                else:
+                    compare(reference, current, dataset + '.' + mode)
+                common.save(path, result)
+                print('OPTIMIZATION_CHECK ' + dataset + ' ' + mode + ' OK', flush=True)
+            case['cold_speedup'] = case['uncached']['elapsed_seconds'] / case['cached_cold']['elapsed_seconds']
+            case['warm_speedup'] = case['uncached']['elapsed_seconds'] / case['cached_warm']['elapsed_seconds']
+            from msrc.batch_collection import primary_prompt
+            from msrc.providers.batched import generate_batch
+            batch_reference = None
+            cache = InternVLInputCache(provider)
+            case['batch2'] = {}
+            for mode in ('uncached', 'cached_cold', 'cached_warm'):
+                provider._batch_input_cache = None if mode == 'uncached' else cache
+                torch.manual_seed(common.SEED)
+                with budget.work('audit_batch2'):
+                    values = generate_batch(provider, [row['image'] for row in selected],
+                        [primary_prompt(row) for row in selected])
+                current = [dict(text=value.text, confidence=value.sequence_confidence,
+                    entropy=value.sequence_entropy, margin=value.first_token_margin) for value in values]
+                if batch_reference is None:
+                    batch_reference = current
+                else:
+                    compare(batch_reference, current, dataset + '.batch2.' + mode)
+                case['batch2'][mode] = current
+                common.save(path, result)
+        result.update(complete=True, verdict='OPTIMIZATION_CHECK_OK', resource=budget.snapshot())
+        common.save(path, result)
+        print('OPTIMIZATION_CHECK_OK', flush=True)
+    except BaseException as error:
+        result.update(error=repr(error), resource=budget.snapshot())
+        common.save(path, result)
+        raise
 
 
 def profile(root, args):
     from msrc.batch_collection import collect_chunk
     verify(root)
+    audit = json.loads((root / 'optimization_check.json').read_text())
+    if not audit.get('complete') or audit.get('verdict') != 'OPTIMIZATION_CHECK_OK':
+        raise ValueError('cache correctness audit must pass before performance selection')
     import torch
     torch.set_num_threads(2)
     budget = BatchBudget(torch, args.cap_gib, shared_duty=args.duty)
@@ -133,27 +250,32 @@ def profile(root, args):
     results = dict(created_ns=time.time_ns(), gpu=torch.cuda.get_device_name(0),
         torch=torch.__version__, candidates=args.batch_sizes, measurements=[], selections={},
         estimator='sample-throughput extrapolation, not a completed full run',
-        sample_source='development only; selection uses runtime, not labels or metric gains')
+        sample_source='development only; selection uses runtime, not labels or metric gains',
+        optimization_check_sha256=common.sha(root / 'optimization_check.json'))
     for family in ('qwen', 'internvl'):
         provider = make_provider(family, budget)
         for dataset, count in [('pope', 9000), ('textvqa', 5000)]:
             dev = [row for row in common.read_rows(root / 'inputs' / (dataset + '.jsonl'))
                    if row['acceptance_split'] == 'dev']
             # Evenly spaced development inputs; include longest questions without looking at outputs.
-            indices = {round(i * (len(dev) - 1) / max(args.profile_items - 1, 1))
-                       for i in range(args.profile_items)}
+            cohort = max(args.profile_items, 16 if family == 'internvl' else max(args.batch_sizes))
+            indices = {round(i * (len(dev) - 1) / max(cohort - 1, 1))
+                       for i in range(cohort)}
             indices.add(max(range(len(dev)), key=lambda i: len(dev[i]['question'])))
             reference = {}
             for size in args.batch_sizes:
-                selected_indices = indices | {round(i * (len(dev) - 1) / max(size - 1, 1))
-                                              for i in range(size)}
+                if family == 'internvl' and size > 16:
+                    break
+                selected_indices = indices
                 selected = [dev[i] for i in sorted(selected_indices)]
                 torch.manual_seed(common.SEED)
                 torch.cuda.empty_cache()
                 torch.cuda.reset_peak_memory_stats()
+                provider._batch_measurements = {}
                 work_before, idle_before = budget.work_seconds, budget.idle_seconds
                 started = time.perf_counter()
-                item = dict(family=family, dataset=dataset, batch_size=size, samples=len(selected))
+                item = dict(family=family, dataset=dataset, batch_size=size, samples=len(selected),
+                    attention_backends=attention_backends(provider), same_cohort_for_all_batch_sizes=True)
                 try:
                     values = collect_chunk(provider, selected, batch_size=size,
                                            donor_only=family == 'qwen', budget=budget, adaptive=False)
@@ -173,7 +295,9 @@ def profile(root, args):
                         predictions=str(prediction_path.relative_to(root)),
                         work_seconds=budget.work_seconds - work_before,
                         voluntary_idle_seconds=budget.idle_seconds - idle_before,
-                        peak_reserved_bytes=torch.cuda.max_memory_reserved())
+                        peak_reserved_bytes=torch.cuda.max_memory_reserved(), stages=provider._batch_measurements,
+                        image_cache=getattr(provider, '_batch_input_cache', None).snapshot()
+                            if family == 'internvl' else None)
                 except torch.OutOfMemoryError as error:
                     item.update(status='OOM', error=str(error)[:500])
                     gc.collect()
@@ -219,6 +343,7 @@ def collect(root, args):
             if output.exists():
                 raise ValueError('fresh output required; no old or partial predictions are imported')
             torch.manual_seed(common.SEED)
+            provider._batch_measurements = {}
             started_ns, started = time.time_ns(), time.perf_counter()
             with output.open('x', encoding='utf-8') as handle:
                 for start in range(0, len(rows), size):
@@ -229,13 +354,19 @@ def collect(root, args):
                         value['collected_ns'] = time.time_ns()
                         common.emit(handle, value)
                     progress = dict(cell=key, completed=start + len(part), total=len(rows), batch_size=size,
-                        elapsed_seconds=time.perf_counter() - started, updated_ns=time.time_ns())
+                        elapsed_seconds=time.perf_counter() - started, updated_ns=time.time_ns(),
+                        stages=provider._batch_measurements,
+                        image_cache=getattr(provider, '_batch_input_cache', None).snapshot()
+                            if family == 'internvl' else None)
                     common.save(root / 'progress.json', progress)
                     if (start // size) % 10 == 0:
                         print(json.dumps(progress), flush=True)
             common.save(output.with_suffix('.resources.json'), dict(budget.snapshot(), complete=True,
                 started_ns=started_ns, ended_ns=time.time_ns(), rows=len(rows), batch_size=size,
-                oom_retried_batch_sizes=getattr(provider, '_batch_retries', [])))
+                oom_retried_batch_sizes=getattr(provider, '_batch_retries', []),
+                stages=provider._batch_measurements, attention_backends=attention_backends(provider),
+                image_cache=getattr(provider, '_batch_input_cache', None).snapshot()
+                    if family == 'internvl' else None))
         del provider
         gc.collect()
         torch.cuda.empty_cache()
@@ -306,7 +437,7 @@ def joint(root, run_id):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-id', required=True)
-    parser.add_argument('--phase', choices=['prepare', 'profile', 'collect', 'evaluate', 'report'], required=True)
+    parser.add_argument('--phase', choices=['prepare', 'optimization_check', 'profile', 'collect', 'evaluate', 'report'], required=True)
     parser.add_argument('--batch-sizes', type=lambda value: [int(v) for v in value.split(',')], default=[1, 2, 4, 8, 16, 32, 64])
     parser.add_argument('--profile-items', type=int, default=8)
     parser.add_argument('--cap-gib', type=int, default=24)
@@ -322,6 +453,8 @@ def main():
     root = common.inside(common.runs_dir() / args.run_id / 'factual')
     if args.phase == 'prepare':
         prepare(root)
+    elif args.phase == 'optimization_check':
+        optimization_check(root, args)
     elif args.phase == 'profile':
         profile(root, args)
     elif args.phase == 'collect':
