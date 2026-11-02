@@ -63,6 +63,13 @@ MSRC_JUDGE_BATCH_SIZE=4 python -B -m pipeline.batch_training --run-id batch_trai
 The shared A100 experiment caps its allocator at 24 GiB, reserves 8 GiB for
 other jobs, and yields half its measured work time. It does not terminate
 another user's process. This is not a measurement on an exclusive RTX 5090.
+The HLC controller accepts `--cap-gib 22` to lower the allocator cap when less
+memory is available. Its start threshold then becomes 30 GiB, preserving the
+same 8 GiB reserve for both factual and safety stages. The default remains
+24 GiB; scientific settings and the frozen-source checks are unchanged.
+Use `--gpu 1 --cap-gib 19` on the HLC controller to select GPU1 with a 19 GiB
+allocator and the same 8 GiB reserve. Selecting GPU1 does not pause the named
+older GPU0 job. The pretrial still chooses the fastest batch that fits this cap.
 Candidate batches use the same fixed development cohort within each model and
 dataset (at least 16 inputs for InternVL and 64 for Qwen, plus the longest
 question). InternVL profiling stops at 16 under the shared 24 GiB cap. These

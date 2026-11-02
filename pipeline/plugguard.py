@@ -171,7 +171,8 @@ def setup():
     torch.set_num_threads(2)
     torch.set_num_interop_threads(2)
     total = torch.cuda.get_device_properties(0).total_memory
-    torch.cuda.set_per_process_memory_fraction(ALLOCATOR_GIB * 1024**3 / total, 0)
+    allocator_gib = min(ALLOCATOR_GIB, (shared_policy or {}).get('allocator_cap_gib', ALLOCATOR_GIB))
+    torch.cuda.set_per_process_memory_fraction(allocator_gib * 1024**3 / total, 0)
     torch.manual_seed(SEED)
     random.seed(SEED)
     assert torch.cuda.device_count() == 1
@@ -682,7 +683,8 @@ def run(head_package=None, mode='full'):
         'gpu': os.environ['CUDA_VISIBLE_DEVICES'],
         'native_generator_config_sha256': sha(MODEL / 'generation_config.json'),
         'native_logits_processors_reused': True, 'cached_decode_new_tokens': 1,
-        'allocator_cap_gib': ALLOCATOR_GIB, 'shared_gpu_execution': budget.policy is not None,
+        'allocator_cap_gib': min(ALLOCATOR_GIB, (budget.policy or {}).get('allocator_cap_gib', ALLOCATOR_GIB)),
+        'shared_gpu_execution': budget.policy is not None,
         'shared_gpu_policy_sha256': sha(ROOT / 'shared_gpu_policy.json') if budget.policy else None,
         'gpu_resource_source_sha256': sha(PROJECT / 'pipeline/gpu_sharing.py'),
         'source_sha256': sha(__file__), 'backend': 'plugguard',

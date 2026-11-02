@@ -69,6 +69,8 @@ def restore(receipt, audit):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-id', default='batch_train_20261102_002')
+    parser.add_argument('--cap-gib', type=int, choices=range(18, 25), default=24)
+    parser.add_argument('--gpu', type=int, choices=[0, 1], default=0)
     parser.add_argument('--restore-only', action='store_true')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
@@ -87,7 +89,7 @@ def main():
             raise ValueError('do not launch a duplicate or overwrite a previous attempt')
         os.sched_setaffinity(0, sorted(os.sched_getaffinity(0))[:2])
         env = os.environ.copy()
-        env.update(MSRC_GPU='0', CUDA_VISIBLE_DEVICES='0', PYTHONUNBUFFERED='1',
+        env.update(MSRC_GPU=str(args.gpu), CUDA_VISIBLE_DEVICES=str(args.gpu), PYTHONUNBUFFERED='1',
                    PYTHONDONTWRITEBYTECODE='1', TOKENIZERS_PARALLELISM='false',
                    OPENBLAS_NUM_THREADS='2', OMP_NUM_THREADS='2', MKL_NUM_THREADS='2',
                    MSRC_JUDGE_BATCH_SIZE='4', HF_HUB_OFFLINE='1', PYTHONNOUSERSITE='1')
@@ -100,21 +102,28 @@ def main():
         env.pop('MSRC_GPU_SHARE_POLICY', None)
         python = '/mnt/data/HLC/msrc_safety_no_fit_fresh_20261023/MSRC/.venv/bin/python'
         base = [python, '-B', '-u']
-        steps = [(phase, base + ['-m', 'pipeline.batch_training', '--run-id', args.run_id, '--phase', phase])
+        steps = [(phase, base + ['-m', 'pipeline.batch_training', '--run-id', args.run_id,
+                                '--phase', phase, '--cap-gib', str(args.cap_gib)])
                  for phase in ('prepare', 'optimization_check', 'profile', 'collect', 'evaluate')]
         steps += [('baseline_safety_training', base + ['-m', 'pipeline.plugguard',
                     '--out', 'runs/' + args.run_id + '/safety', '--refit'])]
         steps += [('multilayer_' + phase, base + ['-m', 'extensions.multilayer.batched',
                     '--run-id', args.run_id, '--phase', phase]) for phase in ('prepare', 'check', 'all')]
-        steps += [('report', base + ['-m', 'pipeline.batch_training', '--run-id', args.run_id, '--phase', 'report'])]
-        sharing = dict(version=3, workload='plugguard', gpu_index=0,
-            gpu_uuid='GPU-a9817ccf-928c-e010-8b37-82c8628d9aba', allowed_other_users=['*'],
-            allocator_cap_gib=24, min_start_free_mib=32768, min_run_free_mib=8192,
+        steps += [('report', base + ['-m', 'pipeline.batch_training', '--run-id', args.run_id,
+                                    '--phase', 'report', '--cap-gib', str(args.cap_gib)])]
+        gpu_uuid = {0: 'GPU-a9817ccf-928c-e010-8b37-82c8628d9aba',
+                    1: 'GPU-71901996-6a3d-e2d5-f2ad-9389b2c8c970'}[args.gpu]
+        sharing = dict(version=3, workload='plugguard', gpu_index=args.gpu,
+            gpu_uuid=gpu_uuid, allowed_other_users=['*'],
+            allocator_cap_gib=args.cap_gib, min_start_free_mib=(args.cap_gib + 8) * 1024,
+            min_run_free_mib=8192,
             target_duty_when_shared=.5, check_interval_seconds=5,
             authorization='User authorizes this highest-priority shared-server experiment, pausing only HLC own tasks')
         save(audit / 'shared_gpu_policy.json', sharing)
         state = dict(state='STARTING', run_id=args.run_id, started_ns=time.time_ns(),
             steps=steps, completed=[], pid=os.getpid(), gpu='A100 shared; not a 5090 timing measurement',
+            allocator_cap_gib=args.cap_gib, reserve_gib=8,
+            gpu_index=args.gpu, gpu_uuid=gpu_uuid,
             environment_reused_readonly=True, old_predictions_or_fitted_parameters_used=False)
         save(audit / 'status.json', state)
         receipt = None
@@ -123,7 +132,8 @@ def main():
             raise SystemExit('controller interrupted by signal ' + str(signum))
         signal.signal(signal.SIGTERM, interrupted)
         try:
-            receipt = pause_named_job(audit)
+            if args.gpu == 0:
+                receipt = pause_named_job(audit)
             for number, (name, command) in enumerate(steps, 1):
                 phase_env = dict(env)
                 if name not in ('prepare', 'optimization_check', 'profile', 'collect', 'evaluate'):

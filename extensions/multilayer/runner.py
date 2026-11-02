@@ -216,13 +216,16 @@ class PortableExperiment(Experiment):
         torch.set_num_threads(2)
         torch.set_num_interop_threads(2)
         torch.manual_seed(SETTINGS['seed'])
-        cap = min(24 * 1024**3, total * .95)
+        shared_policy = resource_backend.load_shared_policy()
+        allocator_gib = min(24, (shared_policy or {}).get('allocator_cap_gib', 24))
+        cap = min(allocator_gib * 1024**3, total * .95)
         torch.cuda.set_per_process_memory_fraction(cap / total, 0)
         self.torch = torch
         spec = importlib.util.spec_from_file_location('multilayer_frozen_inference', FROZEN / 'inference_source.py')
         pg = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(pg)
         pg.torch, pg.ROOT, pg.PROJECT = torch, self.run, common.ROOT
+        pg.ALLOCATOR_GIB = allocator_gib
         paths = common.model_paths()
         pg.MODEL, pg.JUDGE = Path(paths['generator']), Path(paths['judge'])
         pg.UPSTREAM = common.ROOT / 'references/plugguard'

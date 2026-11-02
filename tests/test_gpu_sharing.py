@@ -336,3 +336,29 @@ def test_plugguard_budget_waits_then_runs_one_unchanged_block(policy, monkeypatc
     assert sleeps == [10, 2] and len(checks) == 2
     assert budget.snapshot()['completed_blocks'] == 1
     assert budget.snapshot()['wait_on_resource_pressure'] is True
+
+
+@pytest.mark.parametrize('cap', [18, 19, 20, 22, 24])
+def test_version3_smaller_plugguard_allocator_preserves_eight_gib_reserve(policy, monkeypatch, cap):
+    path, settings = any_owner_policy(policy, monkeypatch, 'plugguard')
+    settings.update(allocator_cap_gib=cap, min_start_free_mib=(cap + 8) * 1024)
+    path.write_text(json.dumps(settings))
+    selected = gpu_sharing.load_shared_policy(workload='plugguard')
+    assert selected['allocator_cap_gib'] == cap and selected['min_run_free_mib'] == 8192
+    mock_gpu(monkeypatch, free=(cap + 8) * 1024, owner='another_user')
+    assert preflight.check_gpu()[0]['shared_gpu_execution'] is True
+    mock_gpu(monkeypatch, free=(cap + 8) * 1024 - 1, owner='another_user')
+    with pytest.raises(preflight.GPUInUse, match='reserve'):
+        preflight.check_gpu()
+
+
+@pytest.mark.parametrize('mutation', [
+    {'allocator_cap_gib': 17}, {'allocator_cap_gib': 25}, {'allocator_cap_gib': True},
+    {'allocator_cap_gib': 22.0}, {'min_start_free_mib': 30719}, {'min_run_free_mib': 8191},
+])
+def test_version3_smaller_plugguard_allocator_cannot_remove_reserve(policy, monkeypatch, mutation):
+    path, settings = any_owner_policy(policy, monkeypatch, 'plugguard')
+    settings.update(allocator_cap_gib=22, min_start_free_mib=30720)
+    path.write_text(json.dumps(dict(settings, **mutation)))
+    with pytest.raises(ValueError):
+        gpu_sharing.load_shared_policy(workload='plugguard')

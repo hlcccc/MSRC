@@ -29,6 +29,11 @@ def load_shared_policy(*, workload=None):
             raise ValueError('Version 3 sharing backend differs from its workload')
         cap, minimum_start, minimum_run = ((36, 49152, 12288) if kind == 'factual'
                                             else (24, 32768, 8192))
+        if kind == 'plugguard':
+            selected_cap = policy.get('allocator_cap_gib')
+            if type(selected_cap) is not int or not 18 <= selected_cap <= 24:
+                raise ValueError('Bounded PlugGuard allocator must stay within 18 to 24 GiB')
+            cap, minimum_start = selected_cap, (selected_cap + 8) * 1024
     elif version == 2:
         expected.add('workload')
         if (policy.get('workload') != 'factual' or workload not in (None, 'factual')
