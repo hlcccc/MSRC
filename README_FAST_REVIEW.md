@@ -5,6 +5,8 @@ fresh fixed-sample demonstration. It is not the original fresh full-inference
 acceptance procedure. No base-model training or new calibrator fitting is done.
 
 Start with [the Chinese test procedure](docs/FAST_REVIEW_FLOW.md).
+The [Chinese overview](docs/FAST_REVIEW_OVERVIEW.md) explains what is tested,
+what is supplied, and how this differs from the original no-training procedure.
 Publication and netdisk contents are described in [the delivery guide](docs/FAST_REVIEW_DELIVERY.md).
 
 The original delivery branch and all original runs remain unchanged. Large model
