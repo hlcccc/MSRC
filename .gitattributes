@@ -30,3 +30,10 @@ SHA256SUMS.txt text eol=lf
 /resources/reproduction/*_NOTICE.md text eol=lf
 /resources/reproduction/raw_bundle.NOTICE.md text eol=lf
 /resources/reproduction/prepared_partitions.sha256 text eol=lf
+
+# Independent fast review additions.
+scripts/fast_*.sh text eol=lf
+fast_review/*.py text eol=lf
+tests_fast/*.py text eol=lf
+resources/fast_review/*.json text eol=lf
+docs/FAST_REVIEW*.md text eol=lf

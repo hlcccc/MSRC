@@ -1,0 +1,7 @@
+{
+  "format": "msrc-fast-review-release-v1",
+  "archive": "MSRC-fast-evidence-20261102.tar.gz",
+  "archive_bytes": 128177883,
+  "archive_sha256": "d0a58da4b8f0a794b6b11911a4ee3b4625ca01151ac8fa8da9f7ebf93ab96dda",
+  "manifest_sha256": "a3a14b3e7f696ae6e13d63ca6bc4fa2bacd3b47fea1aa993b4b459e45ccf66cc"
+}

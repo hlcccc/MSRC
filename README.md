@@ -1,3 +1,12 @@
+# MSRC Fast Review (Isolated Variant)
+
+This branch is the separate historical-evidence-review plus fresh-sample-demo version.
+Use [the fast test flow](docs/FAST_REVIEW_FLOW.md), not the original full-inference
+procedure below. [Scope and limitations](README_FAST_REVIEW.md).
+The original delivery branch and netdisk package are unchanged.
+
+## Original Full-Inference Documentation
+
 # MSRC — multi-signal risk calibration for multimodal generation
 
 **Current multi-layer delivery: offline netdisk package `MSRC_offline_20261030`.**
