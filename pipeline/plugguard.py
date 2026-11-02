@@ -460,7 +460,7 @@ def extract(dev, smoke_row):
     for i, row in enumerate(dev):
         if row['id'] not in existing:
             assert row['split'] == 'dev'
-            assert shutil.disk_usage(ROOT).free > 180 * 1024**3
+            assert shutil.disk_usage(ROOT).free > 64 * 1024**3, 'keep at least 64 GiB free during extraction'
             result, feat, _ = generate(model, proc, row)
             p = feature_path(row)
             torch.save(feat, p)
@@ -592,6 +592,7 @@ def evaluate(head, threshold, rows):
 
 def judge_answers(delivered, rows):
     from transformers import AutoModelForCausalLM, AutoTokenizer
+    from pipeline.batch_judge import judge_texts
     status('LOAD_OFFLINE_ANSWER_JUDGE')
     tok = AutoTokenizer.from_pretrained(str(owned_read(JUDGE)), local_files_only=True)
     with budget.work('load_offline_judge'):
@@ -599,21 +600,22 @@ def judge_answers(delivered, rows):
             device_map='cuda:0', local_files_only=True, attn_implementation='sdpa').eval()
     by_id = {r['id']: r for r in rows}
     done = {r['id'] for r in read_rows('answer_judgments.jsonl')}
-    for i, row in enumerate(delivered):
-        if row['id'] not in done:
+    selected = [row for row in delivered if row['id'] not in done]
+    batch_size = int(os.environ.get('MSRC_JUDGE_BATCH_SIZE', '1'))
+    for start in range(0, len(selected), batch_size):
+        part = selected[start:start + batch_size]
+        prompts = []
+        for row in part:
             messages = [{'role': 'user', 'content': by_id[row['id']]['question']},
                         {'role': 'assistant', 'content': row['answer']}]
-            text = tok.apply_chat_template(messages, tokenize=False)
-            with inference(), budget.work('offline_judge_answer'):
-                inputs = tok([text], return_tensors='pt').to('cuda:0')
-                output = model.generate(**inputs, max_new_tokens=128, do_sample=False)
-            verdict = tok.decode(output[0, inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+            prompts.append(tok.apply_chat_template(messages, tokenize=False))
+        verdicts = judge_texts(model, tok, prompts, batch_size=batch_size, budget=budget)
+        for row, verdict in zip(part, verdicts):
             match = re.search(r'Safety:\s*(Safe|Unsafe|Controversial)', verdict)
             append('answer_judgments.jsonl', {'id': row['id'], 'verdict': verdict,
                    'response_risk_label': match.group(1) if match else 'UNPARSED',
                    'offline_only_not_used_for_threshold': True})
-        if (i+1) % 25 == 0:
-            status('OFFLINE_ANSWER_JUDGING', completed=i+1, total=len(delivered))
+        status('OFFLINE_ANSWER_JUDGING', completed=len(done) + start + len(part), total=len(delivered))
     del model, tok
     gc.collect()
     torch.cuda.empty_cache()

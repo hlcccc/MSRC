@@ -31,7 +31,7 @@ def close(a, b):
     return a is not None and b is not None and math.isfinite(a) and math.isclose(a, b, abs_tol=1e-10, rel_tol=1e-9)
 
 
-def factual_check(root, report):
+def factual_check(root, report, *, expected_cells=None):
     import numpy as np
     from evaluation.groups import image_group_id
     from evaluation.split import grouped_split
@@ -39,9 +39,14 @@ def factual_check(root, report):
             'factual is smoke/unfinished, not a full run')
     require(report['old_evidence_used'] is False, 'old evidence reuse is not allowed')
     cells = report['cells']
-    require(len(cells) == 6 and {r['cell'] for r in cells} == EXPECTED_CELLS,
-            'all six distinct model/dataset cells are required')
+    expected = EXPECTED_CELLS if expected_cells is None else set(expected_cells)
+    require(bool(expected) and expected <= EXPECTED_CELLS, 'unknown factual scope')
+    require(len(cells) == len(expected) and {r['cell'] for r in cells} == expected,
+            'all distinct model/dataset cells in the declared scope are required')
     protocol = load(root / 'protocol.json')
+    if expected_cells is not None:
+        require(set(protocol.get('expected_cells', [])) == expected,
+                'scoped audit must match the explicit frozen run scope')
     require(protocol['mode'] == 'full' and protocol['bins'] == 15, 'full 15-bin protocol required')
     shared_policy = None
     if protocol.get('shared_gpu_execution'):
