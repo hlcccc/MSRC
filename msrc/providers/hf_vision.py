@@ -132,6 +132,7 @@ class HFVisionLanguageProvider:
         want_attention: bool = False,
         want_image_contrast: bool = False,
         max_pixels: Optional[int] = None,
+        quantization: Optional[str] = None,
         model_fn: Any = None,
     ):
         self.model_path = model_path
@@ -146,6 +147,10 @@ class HFVisionLanguageProvider:
         #: One extra forward pass per item, no generation. See `_image_contrast`.
         self.want_image_contrast = bool(want_image_contrast)
         self.max_pixels = int(max_pixels) if max_pixels else None
+        if quantization not in (None, "bnb_nf4"):
+            raise ValueError("quantization must be None or bnb_nf4")
+        self.quantization = quantization
+        self.quantization_audit = None
         self._model_fn = model_fn
 
         self._model = None
@@ -227,6 +232,12 @@ class HFVisionLanguageProvider:
             "torch_dtype": getattr(torch, self.dtype),
             "device_map": self.device,
         }
+        if self.quantization is not None:
+            from msrc.providers.quantization import quantization_config
+
+            load_kwargs["quantization_config"] = quantization_config(
+                self.model_class_name, self.dtype, self.device, self.quantization
+            )
         if self.want_attention:
             # `output_attentions=True` does nothing under the default `sdpa`
             # attention, and nothing is exactly what it returns: no error, no
@@ -237,6 +248,10 @@ class HFVisionLanguageProvider:
             # hands the matrices back.
             load_kwargs["attn_implementation"] = "eager"
         self._model = model_class.from_pretrained(self.model_path, **load_kwargs)
+        if self.quantization is not None:
+            from msrc.providers.quantization import audit_quantization
+
+            self.quantization_audit = audit_quantization(self._model)
         self._model.eval()
         if self.seed is not None:
             # Seeded once, here. Seeding before every generation would make the K
