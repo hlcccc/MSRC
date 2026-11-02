@@ -79,3 +79,35 @@ available. This is not full collection time or a measured inference speedup.
 The proposed generation count is 11 to 8 per item; fresh matched GPU timing is
 still required. Keep this variant experimental rather than replacing the
 original measured-entropy acceptance method.
+
+## Fresh Acceleration Timing
+
+The practical purpose is fewer expensive generations while preserving the
+calibration target, not reproducing every entropy target as closely as possible.
+`msrc.primary_entropy_collection.collect_fast_chunk` now performs a fresh primary
+answer, four rephrasing answers and three verification answers: eight generations
+instead of eleven. It computes the estimate from the fresh primary statistics,
+keeps `resamples` empty, and marks the new signal as an internal estimate.
+`signal_matrix` builds the new fusion inputs; it never invents an independent
+donor answer when none was supplied. Use only the new matching fusion parameters.
+
+```bash
+python -B -m pipeline.primary_entropy_speed \
+  --source /path/to/completed/factual \
+  --parameters runs/primary_stats_entropy_001/primary_entropy_control \
+  --run-id primary_speed_001 --gpu 0
+```
+
+This compares original and accelerated collection on the same development
+questions, BF16 checkpoint, batch size and token budget, using alternating arm
+order and two repetitions. Model/OCR warmup is separate; the measured arms both
+include OCR and signal construction and start with cold process-local image
+caches. Primary answers are generated afresh in both arms. Results are saved to
+`runs/primary_speed_001/primary_entropy_speed/report.md` and `report.json`, with
+per-arm fresh evidence and generation counts alongside them.
+
+This is a collection-stage benchmark, not the duration of the whole acceptance
+workflow. Independent Qwen generation, model download/load and content-safety
+testing are not timed. A shared A100 result must not be described as exclusive
+RTX 5090 performance. Three generations removed is not a measured speedup until
+the real GPU timing has completed; a queued job is not a completed measurement.
