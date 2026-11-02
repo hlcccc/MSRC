@@ -105,6 +105,11 @@ include OCR and signal construction and start with cold process-local image
 caches. Primary answers are generated afresh in both arms. Results are saved to
 `runs/primary_speed_001/primary_entropy_speed/report.md` and `report.json`, with
 per-arm fresh evidence and generation counts alongside them.
+`output_comparison.json` additionally compares each paired fresh primary answer,
+its confidence/entropy/margin, the four rephrasing answers, the three verification
+answers and the original measured versus predicted resampling entropy. This
+checks output changes separately from speed; these small development cases are
+not a fresh held-out calibration acceptance result.
 
 This is a collection-stage benchmark, not the duration of the whole acceptance
 workflow. Independent Qwen generation, model download/load and content-safety

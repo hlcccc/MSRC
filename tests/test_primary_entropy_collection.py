@@ -54,3 +54,18 @@ def test_timing_summary_requires_paired_arms():
     report=summarize(values)
     assert report['pope']['wall_speedup']==pytest.approx(11/8)
     with pytest.raises(ValueError,match='paired complete'):summarize(values[:-1])
+
+
+def test_fresh_output_comparison_checks_answers_scores_and_real_counts(tmp_path):
+    from msrc.batch_collection import collect_chunk
+    from pipeline.primary_entropy_speed import compare_outputs
+    provider,model,contract,rows=fixture(tmp_path)
+    original=collect_chunk(provider,rows,batch_size=2,k=3)
+    fast=collect_fast_chunk(provider,rows,dataset='pope',estimator=model,contract=contract,batch_size=2)
+    report=compare_outputs(original,fast)
+    assert report['primary_answer_matches']==3 and report['maximum_primary_score_delta']==0.
+    assert all(c['original_generation_count']==11 and c['fast_generation_count']==8 for c in report['cases'])
+    assert report['full_acceptance'] is False and report['downstream_calibration_retested'] is False
+    with pytest.raises(ValueError,match='paired unique'):compare_outputs(original,fast[::-1])
+    fast[0]['question']='a different question'
+    with pytest.raises(ValueError,match='fresh inputs differ'):compare_outputs(original,fast)

@@ -8,6 +8,8 @@ from pathlib import Path
 import statistics
 import time
 
+import numpy as np
+
 from pipeline import common
 
 
@@ -46,6 +48,44 @@ def summarize(measurements):
             generation_work_speedup=work['observed']/work['primary_stats'],
             pairs=len(arms['observed']),items_per_arm=arms['observed'][0]['items'])
     return result
+
+
+def compare_outputs(original,fast):
+    """Check fresh output preservation separately from timing or acceptance."""
+    from msrc.signals import Evidence,ResampleConsistency
+    if (not original or len(original)!=len(fast)
+            or [r['id'] for r in original]!=[r['id'] for r in fast]
+            or len({r['id'] for r in original})!=len(original)):
+        raise ValueError('paired unique sample IDs in the same order required')
+    cases=[]
+    for left,right in zip(original,fast):
+        if left['image']!=right['image'] or left['question']!=right['question']:
+            raise ValueError('paired fresh inputs differ')
+        a,b=Evidence.from_dict(left['evidence']),Evidence.from_dict(right['evidence'])
+        if (len(a.views)!=4 or len(b.views)!=4 or len(a.verifications)!=3
+                or len(b.verifications)!=3 or len(a.resamples)!=3 or b.resamples):
+            raise ValueError('the compared generation protocols must be 11 versus 8')
+        scores=np.asarray([[s.sequence_confidence,s.sequence_entropy,s.first_token_margin]
+                           for s in (a.primary,b.primary)],dtype=float)
+        if not np.isfinite(scores).all():raise ValueError('finite primary scores required')
+        predicted=right['entropy_prediction']
+        if predicted.get('observed_resampling') is not False:
+            raise ValueError('the accelerated entropy must be explicitly estimated')
+        teacher=ResampleConsistency().compute(a)
+        cases.append(dict(id=left['id'],primary_answer_exact_match=a.primary.text==b.primary.text,
+            original_primary=dict(text=a.primary.text,sequence_confidence=scores[0,0],
+                token_entropy=scores[0,1],first_token_margin=scores[0,2]),
+            fast_primary=dict(text=b.primary.text,sequence_confidence=scores[1,0],
+                token_entropy=scores[1,1],first_token_margin=scores[1,2]),
+            maximum_primary_score_delta=float(np.max(np.abs(scores[0]-scores[1]))),
+            matching_rephrasing_answers=sum(x.text==y.text for x,y in zip(a.views,b.views)),
+            matching_verification_answers=sum(x.text==y.text for x,y in zip(a.verifications,b.verifications)),
+            observed_resampling_entropy=teacher.risk,estimated_resampling_entropy=predicted['risk'],
+            original_generation_count=11,fast_generation_count=8))
+    return dict(items=len(cases),primary_answer_matches=sum(c['primary_answer_exact_match'] for c in cases),
+        maximum_primary_score_delta=max(c['maximum_primary_score_delta'] for c in cases),
+        functional_output_comparison_only=True,full_acceptance=False,
+        downstream_calibration_retested=False,cases=cases)
 
 
 def main():
@@ -106,7 +146,7 @@ def main():
     for dataset,part in selected.items():
         collect_fast_chunk(provider,[part['warmup']],dataset=dataset,estimator=model,contract=contract,
                            batch_size=1,budget=budget)
-    measurements = []
+    measurements = [];fresh_pairs = {}
     for repeat in range(args.repeats):
         order = ('observed','primary_stats') if repeat%2==0 else ('primary_stats','observed')
         for dataset,part in selected.items():
@@ -137,15 +177,24 @@ def main():
                 with (output/(dataset+'_'+variant+'_'+str(repeat)+'.jsonl')).open('x',encoding='utf-8') as f:
                     for row in rows:common.emit(f,row)
                 measurements.append(item)
+                fresh_pairs.setdefault((dataset,repeat),{})[variant]=rows
                 common.save(output/'progress.json',dict(completed_arms=len(measurements),
                     total_arms=args.repeats*4,last=item,time_ns=time.time_ns()))
                 common.save(output/'measurements.json',measurements)
                 print('FRESH_SPEED_ARM '+json.dumps(item),flush=True)
     if any(common.sha(parameters/name)!=digest for name,digest in frozen.items()):
         raise ValueError('frozen estimator/fusion files changed during timing')
+    comparisons=[dict(dataset=dataset,repeat=repeat,**compare_outputs(pair['observed'],pair['primary_stats']))
+                 for (dataset,repeat),pair in fresh_pairs.items()]
+    common.save(output/'output_comparison.json',dict(pairs=comparisons,
+        development_only=True,used_for_model_selection=False,full_acceptance=False))
     report = dict(verdict='FRESH_SPEED_BENCHMARK_NOT_ACCEPTANCE',datasets=summarize(measurements),
         device=torch.cuda.get_device_name(0),shared_hardware_not_exclusive=True,
         fresh_model_generation=True,full_system_speedup_measured=False,
+        output_comparison=dict(items=sum(c['items'] for c in comparisons),
+            primary_answer_matches=sum(c['primary_answer_matches'] for c in comparisons),
+            maximum_primary_score_delta=max(c['maximum_primary_score_delta'] for c in comparisons),
+            details='output_comparison.json',downstream_calibration_retested=False),
         independent_donor_and_content_safety_not_timed=True,resource=budget.snapshot())
     common.save(output/'report.json',report)
     lines = ['# Fresh entropy acceleration benchmark','',
@@ -156,6 +205,10 @@ def main():
         '|---|---:|---:|---:|---:|---:|']
     for dataset,item in report['datasets'].items():
         lines.append(f"| {dataset} | {item['items_per_arm']} | {item['original_seconds']:.2f} | {item['fast_seconds']:.2f} | {item['wall_speedup']:.3f}x | {item['wall_time_reduction']:.2%} |")
+    comparison=report['output_comparison']
+    lines += ['',f"Primary answer matches: {comparison['primary_answer_matches']}/{comparison['items']}; maximum absolute primary-score difference: {comparison['maximum_primary_score_delta']:.8g}.",
+        'Per-question texts, primary confidence, entropy, generation counts and auxiliary-answer matches: output_comparison.json.',
+        'These are development timing cases, not a new held-out calibration acceptance result.']
     (output/'report.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
     print(report['verdict']+' '+str(output/'report.md'),flush=True)
 
