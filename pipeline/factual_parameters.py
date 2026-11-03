@@ -153,21 +153,23 @@ def validate_state(state, signals, train_ids):
 
 
 def load_package(path, out, protocol):
-    from pipeline.factual import MODELS, SIGNALS, SOURCE
+    from pipeline.factual import SIGNALS
     package = json.loads(Path(path).read_text(encoding='utf-8'))
     if package.get('format') != FORMAT:
         raise ValueError('unknown fitted factual parameter format')
     if package['method'] != {k: protocol[k] for k in METHOD_KEYS}:
         raise ValueError('fitted parameters use different inference/calibration settings')
     validate_code_contract(package, protocol.get('collector_entry', 'scripts/collect_evidence.py'))
-    if set(package['states']) != {m + '_' + d for m in MODELS for d in ('pope', 'textvqa')}:
+    # The published package remains six-cell even when inference selects fewer models.
+    families = ('llava', 'qwen', 'internvl')
+    if set(package['states']) != {m + '_' + d for m in families for d in ('pope', 'textvqa')}:
         raise ValueError('all six fitted factual states required')
     for dataset in ('pope', 'textvqa'):
         rows = read_rows(out / 'inputs' / (dataset + '.jsonl'))
         if identity(rows) != package['datasets'][dataset]:
             raise ValueError('fitted parameters belong to different inputs/images/splits')
         ids = [r['id'] for r in rows if r['acceptance_split'] == 'dev']
-        for family in MODELS:
+        for family in families:
             validate_state(package['states'][family + '_' + dataset], SIGNALS, ids)
     return package
 
