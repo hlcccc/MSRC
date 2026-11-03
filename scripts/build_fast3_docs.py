@@ -79,23 +79,27 @@ def build(source, destination, template=TEMPLATE):
                 run.bold = True
         return p
 
-    add('title', '7. 测试流程')
-    add('intro', '指标1.11、1.12（仅InternVL）和1.13：三张5090无需现场训练版测试流程')
-    for kind, text in blocks(source.read_text(encoding='utf-8')):
+    original = source.read_text(encoding='utf-8')
+    content_blocks = list(blocks(original))
+    assert content_blocks and content_blocks[0][0] == 'body'
+    add('title', original.splitlines()[0][2:])
+    add('intro', content_blocks.pop(0)[1])
+    for kind, text in content_blocks:
         add(kind, text)
     destination.parent.mkdir(parents=True, exist_ok=True)
     document.save(destination)
     reread = Document(destination)
     content = '\n'.join(p.text for p in reread.paragraphs)
-    original = source.read_text(encoding='utf-8')
     commands = re.findall(r'```(?:bash|cmd)\n(.*?)\n```', original, flags=re.S)
-    assert len(re.findall(r'^## [1-8] ', original, flags=re.M)) == 8
+    headings = [int(value) for value in re.findall(r'^## (\d+) ', original, flags=re.M)]
+    assert headings and headings == list(range(1, len(headings) + 1))
     assert all(command in content for command in commands)
     for p in reread.paragraphs:
         if p.style.name == 'Command':
             assert p._p.pPr.find(qn('w:shd')).get(qn('w:fill')) == '000000'
             assert all(str(run.font.color.rgb) == 'FFFFFF' for run in p.runs)
-    return dict(eight_steps=True, command_blocks=len(commands), commands_exact=True,
+    return dict(steps=len(headings), eight_steps=len(headings) == 8,
+        command_blocks=len(commands), commands_exact=True,
         template_section_and_styles_retained=True, black_command_background_white_text=True,
         native_pagination_rendered=False)
 
