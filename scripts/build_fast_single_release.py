@@ -45,10 +45,16 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     materials = args.materials_evidence
     manifest = materials / 'SHA256SUMS.txt'
-    for line in manifest.read_text(encoding='utf-8').splitlines():
-        digest, relative = line.split('  ', 1)
+    reused = {p.relative_to(materials).as_posix() for p in (materials / 'env_patch').rglob('*') if p.is_file()}
+    reused.update(['environment_patch_evidence.json', 'offline_dependency_audit.json',
+        'offline_pip_report.json', 'offline_dependency_audit_script.py'])
+    inventory = dict(line.split('  ', 1)[::-1] for line in manifest.read_text(encoding='utf-8').splitlines())
+    if not reused or not reused <= inventory.keys():
+        raise ValueError('reused environment evidence is not in the original manifest')
+    # Other deliverables (e.g. an operator-edited Word) are neither reused nor overwritten.
+    for relative in reused:
         path = (materials / relative).resolve()
-        if not path.is_relative_to(materials.resolve()) or sha(path) != digest:
+        if not path.is_relative_to(materials.resolve()) or sha(path) != inventory[relative]:
             raise ValueError('reused material evidence changed: ' + relative)
     shutil.copytree(materials / 'env_patch', out / 'env_patch')
     for name in ['environment_patch_evidence.json', 'offline_dependency_audit.json',
