@@ -44,12 +44,33 @@ def test_gpu_inventory_and_foreign_occupants_are_checked_without_signals():
 def test_uuid_binding_survives_repeated_common_select_device(monkeypatch):
     monkeypatch.setenv('MSRC_GPU', '1')
     monkeypatch.setenv('MSRC_CUDA_DEVICE_UUID', 'GPU-11111111')
+    original = common.select_device
+    monkeypatch.setattr(common, 'select_device', original)
+    fast3.configure_device()
     for _ in range(2):
         assert common.select_device({'gpu': '0'}) == 'cuda:0'
         assert os.environ['CUDA_VISIBLE_DEVICES'] == 'GPU-11111111'
     monkeypatch.delenv('MSRC_CUDA_DEVICE_UUID')
+    monkeypatch.setattr(common, 'select_device', original)
     common.select_device({'gpu': '0'})
     assert os.environ['CUDA_VISIBLE_DEVICES'] == '1'
+
+
+def test_supplied_parameter_source_contract_is_unchanged_by_local_gpu_binding(monkeypatch):
+    from pipeline import factual_parameters as parameters
+    collector = parameters.fitted_collector()
+    sources = parameters.source_fingerprints(collector)
+    assert common.sha(common.ROOT / 'pipeline/common.py') == 'c744ac684f0abe9311f77d98602239b700691a2a9a23a0459311e6045c024b72'
+    package = dict(format=parameters.FORMAT, sources=sources,
+        models_recipe_sha256=parameters.text_sha256(common.ROOT / 'resources/reproduction/models.json'))
+    monkeypatch.setenv('MSRC_GPU', '2')
+    monkeypatch.setenv('MSRC_CUDA_DEVICE_UUID', 'GPU-22222222')
+    monkeypatch.setattr(common, 'select_device', common.select_device)
+    fast3.configure_device()
+    parameters.validate_code_contract(package, collector)
+    assert parameters.source_fingerprints(collector) == sources
+    common.select_device({'gpu': '0'})
+    assert os.environ['CUDA_VISIBLE_DEVICES'] == 'GPU-22222222'
 
 
 def dispatch(tmp_path, monkeypatch, run, merge=None):

@@ -127,7 +127,7 @@ def main():
         archive_crc_ok=True, archive_root='MSRC/', no_untracked_files_included=True,
         not_a_gpu_execution_result=True))
     base = '53ce328'
-    unchanged = ['pipeline/fast3_contract.py', 'pipeline/fast3_factual.py', 'pipeline/fast3_safety.py',
+    unchanged = ['pipeline/common.py', 'pipeline/fast3_contract.py', 'pipeline/fast3_factual.py', 'pipeline/fast3_safety.py',
         'pipeline/frozen_fast_runtime_5090.py', 'pipeline/frozen_request_runtime_5090.py',
         'pipeline/frozen_safety_hotpath_5090.py', 'pipeline/frozen_judge_bucket_5090.py',
         'extensions/multilayer/runner.py', 'extensions/multilayer/variants.py']

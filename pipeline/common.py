@@ -128,5 +128,5 @@ def initialize(base: Path | None = None) -> None:
 def select_device(cfg: dict | None = None) -> str:
     cfg = cfg or load_config()
     index = str(os.environ.get("MSRC_GPU") or cfg.get("gpu", "0"))
-    os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("MSRC_CUDA_DEVICE_UUID") or index
+    os.environ["CUDA_VISIBLE_DEVICES"] = index
     return "cuda:0"

@@ -7,6 +7,7 @@ import html
 import importlib.metadata
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 import shlex
 import shutil
@@ -20,6 +21,22 @@ from pipeline import common, fast3_contract as c
 
 def load(path):
     return json.loads(Path(path).read_text(encoding='utf-8'))
+
+
+def configure_device():
+    uuid = os.environ.get('MSRC_CUDA_DEVICE_UUID')
+    if uuid:
+        c.require(re.fullmatch(r'GPU-[0-9a-fA-F-]+', uuid), 'invalid physical CUDA GPU UUID')
+        original = common.select_device
+
+        def bound_device(cfg=None):
+            device = original(cfg)
+            os.environ['CUDA_VISIBLE_DEVICES'] = uuid
+            return device
+
+        # common.py is part of the supplied parameter hash contract; never edit it.
+        common.select_device = bound_device
+    return common.select_device()
 
 
 def selected_files(root):
@@ -434,7 +451,7 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     os.environ['MSRC_GPU'] = args.gpu
-    common.select_device()
+    configure_device()
     common.initialize(c.rank_root(root, args.rank))
     try:
         if args.phase == 'local':
