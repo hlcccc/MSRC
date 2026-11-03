@@ -1,5 +1,6 @@
 """CPU simulations of single-card scheduling; not GPU or Slurm acceptance evidence."""
 from contextlib import nullcontext
+from itertools import count
 import json
 import os
 import shutil
@@ -114,6 +115,9 @@ def dispatch(tmp_path, monkeypatch, run, merge=None):
     monkeypatch.setattr(c, 'lock', lambda *args: nullcontext())
     monkeypatch.setattr(c, 'sources', lambda: {'synthetic': 'CPU test'})
     monkeypatch.setattr(single, 'device', lambda _: spec())
+    # Windows CPython 3.10 wall-clock ticks can make a zero-work mock appear zero-duration.
+    clock = count(10**9, 10**6)
+    monkeypatch.setattr(single.time, 'time_ns', lambda: next(clock))
     monkeypatch.setattr(fast3, 'prepare', lambda *args: dict(experiment_sha256='unit'))
     monkeypatch.setattr(single.subprocess, 'run', run)
     if merge is not None:
