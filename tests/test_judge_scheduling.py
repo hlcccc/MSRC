@@ -106,3 +106,74 @@ def test_overlapping_roles_rejected_before_loading_answers(tmp_path):
         roles=dict(fit=['same'], calibration=[], test=['same']))))
     with pytest.raises(ValueError, match='overlap'):
         development_records(tmp_path)
+
+
+def test_non_equivalent_timed_baseline_cannot_admit_fast_candidate():
+    from pipeline.safety_judge_speed import candidate_admission
+    rows = []
+    for repeat in (0, 1):
+        for variant in ('original', 'encoded', 'length_bucket', 'length_bucket_8'):
+            exact = variant != 'original'
+            rows.append(dict(variant=variant, repeat=repeat, seconds=10 if variant == 'original' else 5,
+                unchanged_rng=True, comparison=dict(exact_raw=exact, exact_parsed=exact)))
+    for row in candidate_admission(rows):
+        assert row['timing_gate_passed'] and row['candidate_matches_serial']
+        assert not row['baseline_matches_serial'] and not row['eligible_for_further_validation']
+        assert 'baseline_differs_from_serial_or_changes_rng' in row['blockers']
+
+
+@pytest.mark.parametrize('defect', ['missing', 'duplicate', 'nan', 'rng', 'parsed', 'raw', 'slow'])
+def test_judge_candidate_requires_complete_valid_paired_evidence(defect):
+    from pipeline.safety_judge_speed import candidate_admission
+    rows = [dict(variant=name, repeat=repeat, seconds=10 if name == 'original' else 5,
+        unchanged_rng=True, comparison=dict(exact_raw=True, exact_parsed=True))
+        for repeat in (0, 1) for name in ('original', 'encoded', 'length_bucket', 'length_bucket_8')]
+    candidate = next(row for row in rows if row['variant'] == 'encoded')
+    if defect == 'missing':
+        rows.remove(candidate)
+    elif defect == 'duplicate':
+        rows.append(dict(candidate))
+    elif defect == 'nan':
+        candidate['seconds'] = float('nan')
+    elif defect == 'rng':
+        candidate['unchanged_rng'] = False
+    elif defect == 'parsed':
+        candidate['comparison']['exact_parsed'] = False
+    elif defect == 'raw':
+        candidate['comparison']['exact_raw'] = False
+    elif defect == 'slow':
+        candidate['seconds'] = 11
+    results = {row['variant']: row for row in candidate_admission(rows)}
+    assert not results['encoded']['eligible_for_further_validation']
+    assert results['length_bucket']['eligible_for_further_validation']
+
+
+@pytest.mark.parametrize('baseline_exact', [False, True])
+def test_saved_trial_audit_recomputes_admission_without_rewriting_evidence(tmp_path, baseline_exact):
+    import json
+    from extensions.multilayer.runner import parse_response_safety
+    from pipeline.audit_safety_judge_speed import audit
+    from pipeline.safety_judge_speed import compare_judgments
+    serial = ['Safety: Safe\nCategories: None\nRefusal: Yes']
+    changed = ['Safety: Controversial\nCategories: Non-violent Illegal Acts\nRefusal: Yes']
+    rows, outputs = [], {}
+    for repeat in (0, 1):
+        for name in ('original', 'encoded', 'length_bucket', 'length_bucket_8'):
+            actual = changed if name == 'original' and not baseline_exact else serial
+            outputs[name + '_' + str(repeat)] = actual
+            rows.append(dict(variant=name, repeat=repeat, seconds=10 if name == 'original' else 5,
+                unchanged_rng=True, comparison=compare_judgments(serial, actual, parse_response_safety)))
+    documents = {'protocol.json': {}, 'cohort.json': dict(origins=[dict(id='development', role='fit')]),
+        'report.json': dict(comparisons=[dict(eligible_for_further_validation=True)]),
+        'serial_reference.json': dict(outputs=serial), 'measurements.json': rows,
+        'fresh_outputs.json': outputs, 'input_tensor_audit.json': {}}
+    for name, value in documents.items():
+        (tmp_path / name).write_text(json.dumps(value), encoding='utf-8')
+    original_bytes = {name: (tmp_path / name).read_bytes() for name in documents}
+    result = audit(tmp_path)
+    assert all((tmp_path / name).read_bytes() == value for name, value in original_bytes.items())
+    assert all(row['eligible_for_further_validation'] == baseline_exact for row in result['comparisons'])
+    assert len(result['differences']) == (0 if baseline_exact else 2)
+    assert (tmp_path / 'audit.md').is_file()
+    with pytest.raises(ValueError, match='retain earlier audits'):
+        audit(tmp_path)

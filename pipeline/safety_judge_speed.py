@@ -5,6 +5,7 @@ import argparse
 import gc
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -70,6 +71,49 @@ def compare_judgments(reference, actual, parse):
         unparsed=sum(value['status'] == 'unparsed' for value in right),
         unknown=sum(value['label'] is None for value in right), count=len(actual),
         exact_raw=reference == actual, exact_parsed=left == right)
+
+
+def candidate_admission(measurements):
+    """Require the timed baseline and candidate to preserve the serial outputs."""
+    variants = [('encoded', 4), ('length_bucket', 4), ('length_bucket_8', 8)]
+
+    def complete_rows(name):
+        rows = [item for item in measurements if item['variant'] == name]
+        complete = (len(rows) == 2 and {row['repeat'] for row in rows} == {0, 1}
+            and all(isinstance(row.get('seconds'), (int, float))
+                and math.isfinite(row['seconds']) and row['seconds'] > 0 for row in rows))
+        return {row['repeat']: row for row in rows}, complete
+
+    def equivalent(row):
+        return (row.get('comparison', {}).get('exact_raw') is True
+            and row.get('comparison', {}).get('exact_parsed') is True
+            and row.get('unchanged_rng') is True)
+
+    baseline, baseline_complete = complete_rows('original')
+    baseline_equivalent = baseline_complete and all(equivalent(row) for row in baseline.values())
+    comparisons = []
+    for name, size in variants:
+        rows, complete = complete_rows(name)
+        speeds = ([baseline[i]['seconds'] / rows[i]['seconds'] for i in (0, 1)]
+            if baseline_complete and complete else [])
+        candidate_equivalent = complete and all(equivalent(row) for row in rows.values())
+        speed_gate = len(speeds) == 2 and all(speed >= 1.05 for speed in speeds)
+        blockers = []
+        if not baseline_complete or not complete:
+            blockers.append('incomplete_paired_rounds')
+        if baseline_complete and not baseline_equivalent:
+            blockers.append('baseline_differs_from_serial_or_changes_rng')
+        if complete and not candidate_equivalent:
+            blockers.append('candidate_differs_from_serial_or_changes_rng')
+        if not speed_gate:
+            blockers.append('paired_speedup_below_5_percent_or_unavailable')
+        comparisons.append(dict(variant=name, batch_size=size, paired_speedups=speeds,
+            baseline_matches_serial=bool(baseline_equivalent),
+            candidate_matches_serial=bool(candidate_equivalent),
+            timing_gate_passed=bool(speed_gate),
+            eligible_for_further_validation=bool(not blockers), blockers=blockers,
+            automatically_activated=False))
+    return comparisons
 
 
 def main():
@@ -189,21 +233,7 @@ def main():
             common.save(output / 'measurements.json', measurements)
             common.save(output / 'fresh_outputs.json', all_outputs)
             print('SAFETY_JUDGE_TRIAL ' + json.dumps(item), flush=True)
-    baseline = {item['repeat']: item for item in measurements if item['variant'] == 'original' and 'seconds' in item}
-    comparisons = []
-    for name, size, order in variants[1:]:
-        rows = [item for item in measurements if item['variant'] == name and 'seconds' in item]
-        eligible = len(rows) == 2 and len(baseline) == 2
-        speeds = []
-        for item in rows:
-            if item['repeat'] not in baseline:
-                eligible = False
-                continue
-            speeds.append(baseline[item['repeat']]['seconds'] / item['seconds'])
-            equivalent = item['comparison']['exact_raw'] and item['comparison']['exact_parsed'] and item['unchanged_rng']
-            eligible = eligible and equivalent and speeds[-1] >= 1.05
-        comparisons.append(dict(variant=name, batch_size=size, paired_speedups=speeds,
-            eligible_for_further_validation=bool(eligible), automatically_activated=False))
+    comparisons = candidate_admission(measurements)
     if any(common.sha(source / name) != digest for name, digest in frozen_source.items()):
         raise ValueError('read-only historical input changed during the trial')
     result = dict(verdict='DEVELOPMENT_JUDGE_SCHEDULING_TRIAL_NOT_ACCEPTANCE',

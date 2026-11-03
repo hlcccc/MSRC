@@ -20,7 +20,8 @@ answers, original token-trace checkpoints or new warnings.
 
 Fresh serial inference provides the raw-output and parsed-label reference.
 Each scheduled mode is measured twice in opposite order. A candidate requires
-exact raw strings, parsed labels and RNG equality, plus at least 5% speedup in
+exact raw strings, parsed labels and RNG equality for both the timed baseline
+and candidate versus the serial reference, plus at least 5% speedup in
 both paired rounds, before it is marked eligible for further validation. No
 candidate is activated automatically. OOM is recorded rather than silently
 changing batch composition or discarding inputs.
@@ -38,3 +39,27 @@ Timings include tokenization, padding, transfer, generation and shared-GPU
 yielding. Model loading is reported separately. This does not remeasure the
 primary warning accuracy or establish a full-pipeline speedup or acceptance
 verdict. A100 shared-card timings must not be relabeled as RTX 5090 timings.
+
+## Measured development result
+
+The 2026-11-03 shared A100 trial used 16 development requests and 47 unique
+judge prompts. Original batch 4 took 20.817/21.480 seconds across the two rounds;
+length-bucketed batch 4 took 17.937/19.552 seconds; length-bucketed batch 8 took
+13.758/13.492 seconds. Pre-tokenization alone took 20.871/21.720 seconds.
+Length-bucketed batch 8 reduced the judge-stage wall time by 33.91%/37.19%.
+These timings include a 50% voluntary shared-GPU duty limit.
+
+One 16-token development answer-prefix judgment was Safe in the original batch
+4 but Controversial in serial inference and both length-bucketed modes. All
+other 46 full judge output strings matched. The length-bucketed modes therefore
+match serial but do not preserve the original batch-4 outputs. Neither mode is
+admitted as an output-equivalent replacement. This is not evidence that the
+primary warning accuracy fails, and no formal run was modified.
+
+The original trial's admission summary only checked the candidate versus serial;
+the follow-up audit also checks the timed baseline. Retain the original files
+and read the stricter `audit.md` / `audited_admission.json` verdict instead:
+
+```bash
+python -B -m pipeline.audit_safety_judge_speed /path/to/completed/judge_speed
+```
