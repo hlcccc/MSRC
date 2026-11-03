@@ -86,3 +86,10 @@ def test_validation_reports_unknown_as_unknown_not_safe():
     assert result['unknown'] == 1 and result['parsed_matches'] == 0
     assert result['differences'][0]['reference_parsed']['label'] == 0
     assert result['differences'][0]['actual_parsed']['label'] is None
+
+
+def test_first_divergent_token_is_not_a_padding_length_difference():
+    from pipeline.judge_batch_diagnostic import divergence
+    assert divergence([4, 5, 6], [4, 5, 7]) == 2
+    assert divergence([4, 5, 6], [4, 5, 6]) is None
+    assert divergence([4, 5, 6], [4, 5, 6, 0]) is None
