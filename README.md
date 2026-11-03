@@ -1,8 +1,12 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**Three-5090 supplied-state candidate:** use [the eight-step fast3 procedure](docs/FAST3_FLOW.md)
+**One-host, three-5090 supplied-state candidate:** use [the test procedure](docs/FAST3_FLOW.md)
 and [its step-by-step audit](docs/FAST3_AUDIT.md) for the no-onsite-training,
-InternVL-only factual scope on three exclusive RTX 5090 nodes. This is a
+InternVL-only factual scope on one host with three exclusive RTX 5090 cards.
+Run `bash scripts/run_fast3_local.sh --run-id local3_fitted_001 --gpus 0,1,2`
+after preparing the shared environment, models and data once. The launcher
+binds each worker to its physical GPU UUID, keeps separate logs/caches, and
+scores the complete merged evidence without SSH or result archives. This is a
 development-gated candidate, not a completed three-GPU acceptance claim or a
 five-hour guarantee. The original six-cell workflow below is a different scope.
 The fast3 material catalog supersedes the older folder-completeness claim below.

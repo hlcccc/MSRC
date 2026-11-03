@@ -11,10 +11,10 @@ import sys
 import xml.etree.ElementTree as ET
 import zipfile
 
-from build_fast3_docs import build, ROOT, TEMPLATE
+from build_fast3_docs import validate, ROOT, TITLE
 
 
-BRANCH = 'codex/frozen-fast-3x5090-20261103'
+BRANCH = 'codex/frozen-fast-local3x5090-20261103'
 
 
 def git(*args, cwd=ROOT):
@@ -53,6 +53,7 @@ def main():
     parser.add_argument('--dependency-evidence', type=Path, required=True)
     parser.add_argument('--dependency-report', type=Path, required=True)
     parser.add_argument('--dependency-script', type=Path, required=True)
+    parser.add_argument('--document-evidence', type=Path, required=True)
     args = parser.parse_args()
     commit = git('rev-parse', 'HEAD')
     if git('branch', '--show-current') != BRANCH or git('status', '--porcelain'):
@@ -79,9 +80,17 @@ def main():
             (args.dependency_report, 'offline_pip_report.json'),
             (args.dependency_script, 'offline_dependency_audit_script.py')):
         shutil.copyfile(source, out / name)
-    qa = build(ROOT / 'docs/FAST3_FLOW.md', out / '测试流程_三张5090_无需现场训练.docx', TEMPLATE)
+    shutil.copyfile(ROOT / 'docs/FAST3_FLOW.docx', out / (TITLE + '.docx'))
+    qa = validate(ROOT / 'docs/FAST3_FLOW.md', out / (TITLE + '.docx'))
+    document_evidence = json.loads(args.document_evidence.read_text(encoding='utf-8'))
+    if not (document_evidence['word_sha256'] == sha(ROOT / 'docs/FAST3_FLOW.docx') and
+            document_evidence['markdown_sha256'] == sha(ROOT / 'docs/FAST3_FLOW.md') and
+            document_evidence['template_paragraph_formatting_preserved'] and
+            document_evidence['template_unchanged']):
+        raise ValueError('Word template evidence does not match the committed flow')
+    qa.update(document_evidence)
     for source, name in (
-        (ROOT / 'docs/FAST3_FLOW.md', '测试流程_三张5090_无需现场训练.md'),
+        (ROOT / 'docs/FAST3_FLOW.md', TITLE + '.md'),
         (ROOT / 'docs/FAST3_AUDIT.md', '逐步审计.md'),
         (ROOT / 'docs/FAST3_DELIVERY.md', '交付说明.md'),
         (ROOT / 'resources/FAST3_ASSET_SOURCES.json', 'FAST3_ASSET_SOURCES.json'),
@@ -91,7 +100,7 @@ def main():
     ):
         shutil.copyfile(source, out / name)
     save(out / 'document_qa.json', qa)
-    archive = out / 'MSRC-fast3-code-20261103.zip'
+    archive = out / 'MSRC-fast-local3-code-20261103.zip'
     subprocess.run(['git', 'archive', '--format=zip', '--prefix=MSRC/',
         '--output=' + str(archive), commit], cwd=ROOT, check=True)
     expected = set(git('ls-tree', '-r', '--name-only', commit).splitlines())
@@ -117,6 +126,20 @@ def main():
         zip_sha256=sha(archive), files_checked=len(found), all_member_bytes_equal_fresh_remote_clone=True,
         archive_crc_ok=True, archive_root='MSRC/', no_untracked_files_included=True,
         not_a_gpu_execution_result=True))
+    base = '53ce328'
+    unchanged = ['pipeline/fast3_contract.py', 'pipeline/fast3_factual.py', 'pipeline/fast3_safety.py',
+        'pipeline/frozen_fast_runtime_5090.py', 'pipeline/frozen_request_runtime_5090.py',
+        'pipeline/frozen_safety_hotpath_5090.py', 'pipeline/frozen_judge_bucket_5090.py',
+        'extensions/multilayer/runner.py', 'extensions/multilayer/variants.py']
+    for name in unchanged:
+        original = subprocess.check_output(['git', 'show', base + ':' + name], cwd=ROOT)
+        if original != (ROOT / name).read_bytes():
+            raise ValueError('unexpected change to frozen inference/evaluation logic: ' + name)
+    save(out / 'local3_code_audit.json', dict(complete=True, base_three_host_commit=git('rev-parse', base),
+        local_commit=commit, unchanged_algorithm_files={name: sha(ROOT / name) for name in unchanged},
+        changed_paths=git('diff', '--name-only', base, commit).splitlines(),
+        scope='dispatcher, explicit CUDA UUID binding, local receipt finalization and delivery only',
+        no_gpu_run_claim=True))
     versions = {name: importlib.metadata.version(name) for name in ('pytest', 'torch', 'numpy', 'python-docx')}
     save(out / 'RELEASE.json', dict(
         format='msrc-fast3-delivery-v1', status='CANDIDATE_RELEASE_NOT_THREE_GPU_ACCEPTANCE',
@@ -128,8 +151,11 @@ def main():
         onsite_training=False, fitted_state='supplied, unchanged; pretrained offline, not newly fitted onsite',
         test_selection=False, physical_three_gpu_validation_completed=False,
         final_metric_pass_not_yet_measured=True, no_five_hour_guarantee=True,
-        runtime_estimate_hours=[3.5, 5.0], estimate_only=True,
-        estimate_requires='three exclusive RTX 5090 nodes, assets/environment ready, all development gates pass',
+        topology='one_host_three_gpus', launcher='scripts/run_fast3_local.sh',
+        launch_command='bash scripts/run_fast3_local.sh --run-id local3_fitted_001 --gpus 0,1,2',
+        shared_environment_and_assets=True, uses_ssh=False, uses_result_transport_archives=False,
+        runtime_estimate_hours=None, estimate_only=False,
+        runtime_note='one-host CPU, RAM and SSD contention has not been timed; old three-host estimate not inherited',
         cpu_evidence=dict(platform=platform.platform(), python=sys.version, versions=versions,
             full_regression=full, fast3_contract_and_synthetic_transport=contract,
             synthetic_transport_is_not_gpu_model_quality_evidence=True),
@@ -143,7 +169,7 @@ def main():
         old_single_gpu_results_are_planning_reference_not_this_release_results=True))
     save(out / 'READY.json', dict(ready_for_upload=True, commit=commit,
         delivery_only=True, scientific_acceptance_completed=False,
-        destination='/MSRC_fast_3x5090_20261103'))
+        destination='/MSRC_fast_local3x5090_20261103'))
     checksums = ''.join(sha(p) + '  ' + p.relative_to(out).as_posix() + '\n' for p in sorted(out.rglob('*'))
         if p.is_file() and p != out / 'SHA256SUMS.txt')
     (out / 'SHA256SUMS.txt').write_text(checksums, encoding='utf-8', newline='\n')

@@ -1,6 +1,9 @@
 {
   "format": "msrc-fast3-asset-sources-v1",
-  "new_release_directory": "MSRC_fast_3x5090_20261103",
+  "new_release_directory": "MSRC_fast_local3x5090_20261103",
+  "topology": "one_host_three_gpus",
+  "shared_installations": 1,
+  "launcher": "scripts/run_fast3_local.sh",
   "contains_models_or_data_in_code_zip": false,
   "reusable_sources": {
     "InternVL3-8B-hf": "/MSRC_offline_20261030/models/InternVL3-8B-hf",

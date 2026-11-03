@@ -109,7 +109,7 @@ def stage(root, rank, phase):
             c.atomic(root / 'safety_audit.json', safety.audit(instance))
 
 
-def export(root, destination, rank):
+def finalize_receipt(root, rank):
     verify(root)
     c.require((root / 'safety_audit.json').is_file(), 'worker has not completed safety audit')
     files = selected_files(root) + [root / 'safety_audit.json']
@@ -122,6 +122,11 @@ def export(root, destination, rank):
             files={p.relative_to(root).as_posix(): common.sha(p) for p in files}, completed_ns=time.time_ns())
         c.atomic(root / 'receipt.json', receipt)
     files.append(root / 'receipt.json')
+    return files
+
+
+def export(root, destination, rank):
+    files = finalize_receipt(root, rank)
     destination = common.inside(destination)
     c.require(not destination.exists(), 'export exists; preserve immutable bundle')
     temporary = destination.with_name(destination.name + '.pending-' + str(os.getpid()))
@@ -168,13 +173,13 @@ def unpack(archive, parent, rank):
     verify_receipt(root, rank)
 
 
-def worker(root, run_id, rank, expected=None):
+def worker(root, run_id, rank, expected=None, archive=True):
     plan = prepare(root, run_id, rank)
     c.require(expected is None or expected == plan['experiment_sha256'], 'coordinator/worker contract differs')
     if (root / 'receipt.json').exists():
         verify_receipt(root, rank)
         bundle = root.parent / (root.name + '.tar.gz')
-        if not bundle.exists():
+        if archive and not bundle.exists():
             export(root, bundle, rank)
         return
     for phase in ('qwen', 'internvl', 'safety', 'judge'):
@@ -182,7 +187,11 @@ def worker(root, run_id, rank, expected=None):
             '--rank', str(rank), '--gpu', os.environ.get('MSRC_GPU', '0'), '--phase', phase],
             cwd=common.ROOT, check=True)
     verify_models()
-    export(root, root.parent / (root.name + '.tar.gz'), rank)
+    if archive:
+        export(root, root.parent / (root.name + '.tar.gz'), rank)
+    else:
+        finalize_receipt(root, rank)
+        print('FAST3_WORKER_COMPLETE ' + str(root), flush=True)
 
 
 def merge(root, write=True):
@@ -298,7 +307,8 @@ def write_report(root, result):
     lines += ['', 'Safety temporal_hold accuracy: %.4f%%; target >=75%%.' % (100 * safety['accuracy']),
         'Metric 1 >=3 actual signals per sample; metric 2 >=10% relative ECE improvement in EACH cell.',
         '', result['limitation'], '', 'Evidence: ../merged/factual/ and ../merged/multilayer/; rank-*/receipt.json.',
-        'Three-card elapsed time must be read from cluster_timing.json; no inherited five-hour guarantee.']
+        'Three-card elapsed time: ' + result.get('timing_file', 'cluster_timing.json') +
+        '; no inherited five-hour guarantee.']
     text = '\n'.join(lines) + '\n'
     for name in ('report', 'signal_report', 'calibration_report', 'warning_report'):
         (joint / (name + '.md')).write_text(text, encoding='utf-8', newline='\n')
@@ -311,17 +321,20 @@ def write_report(root, result):
     print(result['verdict'], flush=True)
 
 
-def cluster_start(root, run_id):
+def cluster_start(root, run_id, topology=None):
     started = time.time_ns()
     path = root / 'cluster_origin.json'
     if path.exists():
         origin = load(path)
     else:
         origin = dict(format=c.FORMAT, run_id=run_id, started_ns=started)
+        if topology is not None:
+            origin['topology'] = topology
         c.atomic(path, origin)
     c.require(origin['format'] == c.FORMAT and origin['run_id'] == run_id and
         type(origin['started_ns']) is int and 0 < origin['started_ns'] <= started,
         'invalid first cluster invocation clock')
+    c.require(origin.get('topology') == topology, 'run topology changed')
     return started, origin['started_ns']
 
 
@@ -392,16 +405,30 @@ def cluster(root, run_id, hosts):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-id', required=True)
-    parser.add_argument('--phase', required=True, choices=('prepare', 'worker', 'qwen', 'internvl', 'safety', 'judge', 'merge', 'cluster'))
+    parser.add_argument('--phase', required=True, choices=('prepare', 'worker', 'qwen', 'internvl', 'safety', 'judge', 'merge', 'cluster', 'local'))
     parser.add_argument('--rank', type=int, choices=range(3), default=0)
     parser.add_argument('--gpu', default='0')
     parser.add_argument('--hosts', type=Path)
     parser.add_argument('--expected-experiment')
+    parser.add_argument('--gpus', help='three distinct physical indices, local phase only')
+    parser.add_argument('--no-archive', action='store_true', help='keep worker receipt in place, without transport tar')
     args = parser.parse_args()
     if Path.home() == Path('/home/HLC'):
         parser.error('this release is for exclusive cloud 5090 workers, not shared HLC GPUs')
     if not args.gpu.isdigit():
         parser.error('one physical GPU index per worker required')
+    from pipeline.fast3_local import parse_gpus
+    if args.phase == 'local':
+        if args.hosts is not None:
+            parser.error('local mode does not use an SSH hosts file')
+        try:
+            gpus = parse_gpus(args.gpus or '0,1,2')
+        except ValueError as error:
+            parser.error(str(error))
+    elif args.gpus is not None:
+        parser.error('--gpus is only supported by the local phase')
+    if args.no_archive and args.phase != 'worker':
+        parser.error('--no-archive is only supported by workers')
     try:
         root = c.root_for(args.run_id)
     except ValueError as error:
@@ -410,6 +437,10 @@ def main():
     common.select_device()
     common.initialize(c.rank_root(root, args.rank))
     try:
+        if args.phase == 'local':
+            from pipeline.fast3_local import local
+            result = local(root, args.run_id, gpus)
+            return 0 if result['scoped_acceptance_pass'] else 3
         if args.phase == 'cluster':
             c.require(args.hosts is not None, '--hosts required for cluster')
             result = cluster(root, args.run_id, args.hosts)
@@ -424,7 +455,7 @@ def main():
             if args.phase == 'prepare':
                 prepare(local, args.run_id, args.rank)
             elif args.phase == 'worker':
-                worker(local, args.run_id, args.rank, args.expected_experiment)
+                worker(local, args.run_id, args.rank, args.expected_experiment, archive=not args.no_archive)
             else:
                 stage(local, args.rank, args.phase)
         return 0
