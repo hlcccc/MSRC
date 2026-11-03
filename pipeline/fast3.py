@@ -311,6 +311,20 @@ def write_report(root, result):
     print(result['verdict'], flush=True)
 
 
+def cluster_start(root, run_id):
+    started = time.time_ns()
+    path = root / 'cluster_origin.json'
+    if path.exists():
+        origin = load(path)
+    else:
+        origin = dict(format=c.FORMAT, run_id=run_id, started_ns=started)
+        c.atomic(path, origin)
+    c.require(origin['format'] == c.FORMAT and origin['run_id'] == run_id and
+        type(origin['started_ns']) is int and 0 < origin['started_ns'] <= started,
+        'invalid first cluster invocation clock')
+    return started, origin['started_ns']
+
+
 def cluster(root, run_id, hosts):
     specs = load(hosts)['workers']
     c.require(len(specs) == 2 and {s['rank'] for s in specs} == {1, 2}, 'host file needs remote ranks 1 and 2')
@@ -319,7 +333,7 @@ def cluster(root, run_id, hosts):
             all(ch not in spec['host'] for ch in '\r\n ') and type(spec['port']) is int and 1 <= spec['port'] <= 65535 and
             str(spec.get('gpu', '0')).isdigit(), 'invalid SSH host/port/GPU')
     with c.lock(root, 'cluster.lock'):
-        started = time.time_ns()
+        started, first_started = cluster_start(root, run_id)
         plan = prepare(c.rank_root(root, 0), run_id, 0)
         incoming = common.inside(root / 'incoming')
         incoming.mkdir(exist_ok=True)
@@ -351,15 +365,20 @@ def cluster(root, run_id, hosts):
                     task.result()
                 except Exception as error:
                     errors.append(repr(error))
-        timing = dict(started_ns=started, finished_ns=time.time_ns(),
-            elapsed_seconds=(time.time_ns() - started) / 1e9, includes_preparation_and_transfers=True, errors=errors)
+        timing = dict(started_ns=first_started, current_invocation_started_ns=started, finished_ns=time.time_ns(),
+            elapsed_seconds=(time.time_ns() - first_started) / 1e9,
+            current_invocation_elapsed_seconds=(time.time_ns() - started) / 1e9,
+            includes_resume_downtime=first_started != started,
+            includes_preparation_and_transfers=True, errors=errors)
         c.atomic(root / 'cluster_timing.json', timing)
         c.require(not errors, 'one or more workers failed: ' + repr(errors))
         result = merge(root, write=False)
-        result['elapsed_through_global_scoring_seconds'] = (time.time_ns() - started) / 1e9
+        result['elapsed_through_global_scoring_seconds'] = (time.time_ns() - first_started) / 1e9
+        result['current_invocation_through_global_scoring_seconds'] = (time.time_ns() - started) / 1e9
         result['timing_excludes_initial_install_and_asset_transfer'] = True
         write_report(root, result)
-        timing.update(finished_ns=time.time_ns(), elapsed_seconds=(time.time_ns() - started) / 1e9,
+        timing.update(finished_ns=time.time_ns(), elapsed_seconds=(time.time_ns() - first_started) / 1e9,
+            current_invocation_elapsed_seconds=(time.time_ns() - started) / 1e9,
             includes_global_scoring_audit_and_report=True)
         c.atomic(root / 'cluster_timing.json', timing)
         # Refresh inventory after the final timing receipt changes.

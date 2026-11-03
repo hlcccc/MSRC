@@ -249,3 +249,11 @@ def test_stage_exposes_no_training_phase():
     text = inspect.getsource(fast3.main)
     assert "'fit'" not in text and "'development'" not in text and "'label'" not in text
     assert 'c.forbid_training()' in inspect.getsource(fast3.stage)
+
+
+def test_resume_does_not_reset_the_whole_pipeline_clock(tmp_path):
+    with patch.object(common, 'ROOT', tmp_path), patch.object(fast3.time, 'time_ns', side_effect=[10**9, 3601 * 10**9]):
+        assert fast3.cluster_start(tmp_path, 'unit') == (10**9, 10**9)
+        assert fast3.cluster_start(tmp_path, 'unit') == (3601 * 10**9, 10**9)
+    with patch.object(common, 'ROOT', tmp_path), pytest.raises(ValueError, match='clock'):
+        fast3.cluster_start(tmp_path, 'different-run')

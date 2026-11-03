@@ -110,4 +110,4 @@ start "" "D:\MSRC_results\fast3_fitted_001\fast3\joint\report.html"
 notepad "D:\MSRC_results\fast3_fitted_001\fast3\joint\report.md"
 ```
 
-断点恢复可重跑第五步同一命令：仅复用本编号已提交的完整原子块/安全记录，绝不导入旧运行测试预测。若准备阶段不完整或源码/参数改变，先保留故障目录，使用新的run-id；若merged已存在，不覆盖旧结论。不得自动租用、释放或关闭实例。
+断点恢复可重跑第五步同一命令：仅复用本编号已提交的完整原子块/安全记录，绝不导入旧运行测试预测。cluster_timing的elapsed_seconds从首次启动累计，含故障及暂停；current_invocation_elapsed_seconds单独表示本次调用，不可把续跑尾段冒充整个流程。若准备阶段不完整或源码/参数改变，先保留故障目录，使用新的run-id；若merged已存在，不覆盖旧结论。不得自动租用、释放或关闭实例。

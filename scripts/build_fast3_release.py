@@ -50,6 +50,9 @@ def main():
     parser.add_argument('--contract-tests', type=Path, required=True)
     parser.add_argument('--fresh-clone', type=Path, required=True)
     parser.add_argument('--environment-evidence', type=Path, required=True)
+    parser.add_argument('--dependency-evidence', type=Path, required=True)
+    parser.add_argument('--dependency-report', type=Path, required=True)
+    parser.add_argument('--dependency-script', type=Path, required=True)
     args = parser.parse_args()
     commit = git('rev-parse', 'HEAD')
     if git('branch', '--show-current') != BRANCH or git('status', '--porcelain'):
@@ -64,6 +67,18 @@ def main():
     if not (out / 'env_patch/SHA256SUMS.txt').is_file() or not list((out / 'env_patch/wheels').glob('*.whl')):
         raise ValueError('required environment supplement has not been delivered')
     shutil.copyfile(args.environment_evidence, out / 'environment_patch_evidence.json')
+    dependency = json.loads(args.dependency_evidence.read_text(encoding='utf-8'))
+    if not (dependency['complete'] and dependency['no_packages_installed'] and
+            dependency['only_inventory_plus_supplement_used'] and
+            dependency['environment']['sys_platform'] == 'linux' and
+            dependency['environment']['python_version'] == '3.10' and
+            dependency['report_sha256'] == sha(args.dependency_report) and
+            dependency['audit_script_sha256'] == sha(args.dependency_script)):
+        raise ValueError('offline dependency evidence or its bound sources differ')
+    for source, name in ((args.dependency_evidence, 'offline_dependency_audit.json'),
+            (args.dependency_report, 'offline_pip_report.json'),
+            (args.dependency_script, 'offline_dependency_audit_script.py')):
+        shutil.copyfile(source, out / name)
     qa = build(ROOT / 'docs/FAST3_FLOW.md', out / '测试流程_三张5090_无需现场训练.docx', TEMPLATE)
     for source, name in (
         (ROOT / 'docs/FAST3_FLOW.md', '测试流程_三张5090_无需现场训练.md'),
@@ -123,6 +138,8 @@ def main():
             'native Word pagination render', 'DSH upload/readback until separate verification receipt'],
         large_assets='separate reused-materials share; not contained in code ZIP',
         environment_supplement='env_patch/wheels; evidence in environment_patch_evidence.json; fresh GPU install pending',
+        offline_dependency_resolution=dict(complete=True, packages=len(dependency['selected_packages']),
+            linux_cp310_pep508_markers=True, cuda_runtime='cu128', not_a_fresh_install_or_cuda_test=True),
         old_single_gpu_results_are_planning_reference_not_this_release_results=True))
     save(out / 'READY.json', dict(ready_for_upload=True, commit=commit,
         delivery_only=True, scientific_acceptance_completed=False,
