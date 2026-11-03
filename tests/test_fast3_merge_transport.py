@@ -137,3 +137,45 @@ def test_different_experiments_cannot_be_combined(full_transport):
     with pytest.raises(ValueError, match='different experiments'):
         fast3.merge(root)
     assert not scored
+
+
+def single_evidence(root, instances):
+    uuid = 'GPU-11111111-2222-3333-4444-555555555555'
+    for rank in range(3):
+        instances[c.rank_root(root, rank) / 'multilayer'].path('environment.json').write_text(
+            json.dumps(dict(device=dict(uuid=uuid))))
+    c.atomic(root / 'single_dispatch.json', dict(format=c.FORMAT, topology='one_host_one_gpu',
+        run_id='unit', physical_gpu_count=1, logical_shards=3, sources=c.sources(), device=dict(uuid=uuid)))
+    c.atomic(root / 'cluster_origin.json', dict(topology='one_host_one_gpu', run_id='unit'))
+    c.atomic(root / 'single_timing.json', dict(topology='one_host_one_gpu', worker_executions={str(r):
+        dict(rank=r, complete=True, gpu_uuid=uuid, started_ns=r * 10 + 1, finished_ns=r * 10 + 9)
+        for r in range(3)}))
+
+
+def test_single_card_full_counts_global_merge_is_explicit_and_not_a_three_gpu_claim(full_transport):
+    root, instances, scored = full_transport
+    single_evidence(root, instances)
+    result = fast3.merge(root, physical_gpu_count=1)
+    assert len(scored) == 1 and result['scoped_acceptance_pass']
+    assert result['physical_gpu_count'] == 1 and not result['physical_three_gpu_run']
+    assert result['safety_primary']['temporal_hold']['n'] == 3360
+    assert result['safety_response_reviews']['temporal_hold'] == {'safe': 3360}
+
+
+def test_single_merge_rejects_overlapping_execution_before_creating_merged(full_transport):
+    root, instances, scored = full_transport
+    single_evidence(root, instances)
+    timing = fast3.load(root / 'single_timing.json')
+    timing['worker_executions']['1']['started_ns'] = 2
+    c.atomic(root / 'single_timing.json', timing)
+    with pytest.raises(ValueError, match='overlap'):
+        fast3.merge(root, physical_gpu_count=1)
+    assert not scored and not (root / 'merged').exists()
+
+
+def test_single_topology_does_not_relax_default_three_card_guard(full_transport):
+    root, instances, scored = full_transport
+    single_evidence(root, instances)
+    with pytest.raises(ValueError, match='distinct physical GPU'):
+        fast3.merge(root)
+    assert not scored and not (root / 'merged').exists()

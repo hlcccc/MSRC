@@ -52,7 +52,7 @@ def signature(element):
         tuple(signature(child) for child in element))
 
 
-def validate(source, word):
+def validate(source, word, run_id='local3_fitted_001', topology='one_host_three_gpus'):
     text = source.read_text(encoding='utf-8')
     document = Document(word)
     commands = re.findall(r'```bash\n(.*?)\n```', text, flags=re.S)
@@ -65,16 +65,17 @@ def validate(source, word):
     assert document.paragraphs[0].text == '7. 测试流程'
     assert all(name + ext in rendered for name in ('report', 'signal_report', 'calibration_report', 'warning_report')
         for ext in ('.html', '.md'))
-    assert 'runs/local3_fitted_001/fast3/joint/report.html' in rendered
+    assert 'runs/' + run_id + '/fast3/joint/report.html' in rendered
     assert all(value not in rendered for value in ('--hosts', '--phase cluster', 'PORT1', 'USER1@', '三台服务器',
         '独占RTX', 'POPE 4500', 'TextVQA 2496', '五个实验臂', 'fast3_fitted_001'))
     return dict(steps=len(headings), command_blocks=len(commands),
         commands_exact_between_markdown_and_word=True, report_paths_and_all_metric_file_pairs_present=True,
-        topology='one_host_three_gpus', no_three_machine_commands=True,
+        topology=topology, no_three_machine_commands=True,
         removed_hardware_and_dataset_scope_commentary=True, native_pagination_rendered=False)
 
 
-def build(source, destination, template=TEMPLATE):
+def build(source, destination, template=TEMPLATE, title=TITLE,
+        run_id='local3_fitted_001', topology='one_host_three_gpus'):
     original_hash = hashlib.sha256(template.read_bytes()).hexdigest()
     document = Document(template)
     paragraphs = document.paragraphs
@@ -107,13 +108,13 @@ def build(source, destination, template=TEMPLATE):
         if properties is not None:
             run._r.insert(0, properties)
         preserved &= signature(element.find(qn('w:pPr'))) == signature(model.find(qn('w:pPr')))
-    document.core_properties.title = TITLE
+    document.core_properties.title = title
     document.core_properties.author = ''
     document.core_properties.last_modified_by = ''
     destination.parent.mkdir(parents=True, exist_ok=True)
     document.save(destination)
     assert preserved
-    qa = validate(source, destination)
+    qa = validate(source, destination, run_id, topology)
     qa.update(template_name=template.name, template_sha256=original_hash,
         template_paragraph_formatting_preserved=True,
         word_sha256=hashlib.sha256(destination.read_bytes()).hexdigest(),

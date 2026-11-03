@@ -1,6 +1,19 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
-**One-host, three-5090 supplied-state candidate:** use [the test procedure](docs/FAST3_FLOW.md)
+**Single-5090 supplied-state candidate (this branch):** use the concise
+[test procedure](docs/FAST_SINGLE_FLOW.md), [Word flow](docs/FAST_SINGLE_FLOW.docx),
+[Slurm submission](docs/FAST_SINGLE_SLURM.md) and [audit](docs/FAST_SINGLE_AUDIT.md).
+Run `bash scripts/run_fast_single.sh --run-id single_fitted_001` after setup,
+or submit `sbatch scripts/run_fast_single_slurm.sh --run-id single_fitted_001`
+from the project directory to do setup and execution inside a one-GPU job.
+Inherited CUDA allocations are probed before UUID binding; do not pass `--gpu`
+under Slurm. Three unchanged logical shards execute serially on one physical
+card. No sample reduction, new quantization, predictor or onsite fitting is
+introduced. This branch has CPU engineering evidence, not a new physical GPU
+acceptance result, runtime guarantee or guarantee of passing the thresholds.
+The original three-card branch and package remain unchanged.
+
+**Retained one-host, three-5090 entry (not the single-card procedure):** use [the test procedure](docs/FAST3_FLOW.md)
 and [its step-by-step audit](docs/FAST3_AUDIT.md) for the no-onsite-training,
 InternVL-only factual scope on one host with three exclusive RTX 5090 cards.
 Run `bash scripts/run_fast3_local.sh --run-id local3_fitted_001 --gpus 0,1,2`

@@ -211,11 +211,38 @@ def worker(root, run_id, rank, expected=None, archive=True):
         print('FAST3_WORKER_COMPLETE ' + str(root), flush=True)
 
 
-def merge(root, write=True):
+def verify_merge_devices(root, devices, physical_gpu_count=3):
+    c.require(physical_gpu_count in (1, 3), 'unsupported physical GPU count')
+    if physical_gpu_count == 3:
+        c.require(len(set(devices)) == c.WORLD, 'three distinct physical GPU UUIDs required')
+        return
+    c.require(len(devices) == c.WORLD and len(set(devices)) == 1, 'one physical GPU UUID required')
+    dispatch = load(root / 'single_dispatch.json')
+    origin = load(root / 'cluster_origin.json')
+    timing = load(root / 'single_timing.json')
+    c.require(dispatch['format'] == c.FORMAT and dispatch['topology'] == origin['topology'] ==
+        timing['topology'] == 'one_host_one_gpu' and dispatch['run_id'] == origin['run_id'] and
+        dispatch['physical_gpu_count'] == 1 and dispatch['logical_shards'] == c.WORLD and
+        dispatch['sources'] == c.sources() and dispatch['device']['uuid'] == devices[0],
+        'single-GPU topology or physical identity differs')
+    executions = timing['worker_executions']
+    c.require(set(executions) == {str(r) for r in range(c.WORLD)}, 'incomplete serial worker evidence')
+    previous = 0
+    for rank in range(c.WORLD):
+        record = executions[str(rank)]
+        c.require(record['rank'] == rank and record['complete'] is True and record['gpu_uuid'] == devices[rank]
+            and previous <= record['started_ns'] < record['finished_ns'], 'serial worker identity or overlap differs')
+        previous = record['finished_ns']
+
+
+def merge(root, write=True, physical_gpu_count=3):
     from pipeline import fast3_factual as factual, fast3_safety as safety
     roots = [c.rank_root(root, r) for r in range(c.WORLD)]
     plans = [verify_receipt(path, rank) for rank, path in enumerate(roots)]
     c.require(len({p['experiment_sha256'] for p in plans}) == 1, 'different experiments cannot be merged')
+    devices = [load(safety.experiment(path / 'multilayer', r).path('environment.json'))['device']['uuid']
+        for r, path in enumerate(roots)]
+    verify_merge_devices(root, devices, physical_gpu_count)
     # Recheck source ranks, including events against their own host's pre-test freeze clock.
     local_safety = [safety.audit(safety.experiment(path / 'multilayer', r)) for r, path in enumerate(roots)]
     merged = common.inside(root / 'merged')
@@ -288,7 +315,8 @@ def merge(root, write=True):
         metric_3_pass=s_report['primary']['temporal_hold']['accuracy'] >= .75)
     result = dict(complete=True, verdict='SCOPED_PASS' if all(passed.values()) else 'SCOPED_FAIL',
         acceptance_pass=False, scoped_acceptance_pass=all(passed.values()), original_six_cell_acceptance=False,
-        **passed, onsite_training=False, world_size=c.WORLD, physical_three_gpu_run=True,
+        **passed, onsite_training=False, world_size=c.WORLD,
+        physical_three_gpu_run=physical_gpu_count == 3, physical_gpu_count=physical_gpu_count,
         experiment_sha256=plans[0]['experiment_sha256'], factual_cells=cells,
         safety_primary=s_report['primary'], safety_response_reviews=s_report['response_safety'],
         unique_review_inputs=len(review_labels), duplicate_review_raw_differences=cross_rank_raw_differences,
@@ -297,10 +325,6 @@ def merge(root, write=True):
         fresh_test_predictions=True, global_ece_not_mean_shard_ece=True,
         parallel_overlap_measured=False,
         limitation='no harmful-token onset annotation; local buffer gate, not HTTP delivery; teacher not human gold')
-    # Each worker records its UUID; do not let one physical card masquerade as a three-card benchmark.
-    devices = [load(safety.experiment(path / 'multilayer', r).path('environment.json'))['device']['uuid']
-        for r, path in enumerate(roots)]
-    c.require(len(set(devices)) == c.WORLD, 'three distinct physical GPU UUIDs required')
     result['gpu_uuids'] = devices
     if write:
         write_report(root, result)
@@ -324,7 +348,8 @@ def write_report(root, result):
     lines += ['', 'Safety temporal_hold accuracy: %.4f%%; target >=75%%.' % (100 * safety['accuracy']),
         'Metric 1 >=3 actual signals per sample; metric 2 >=10% relative ECE improvement in EACH cell.',
         '', result['limitation'], '', 'Evidence: ../merged/factual/ and ../merged/multilayer/; rank-*/receipt.json.',
-        'Three-card elapsed time: ' + result.get('timing_file', 'cluster_timing.json') +
+        'Physical GPUs: %d. Elapsed time: ' % result.get('physical_gpu_count', 3) +
+        result.get('timing_file', 'cluster_timing.json') +
         '; no inherited five-hour guarantee.']
     text = '\n'.join(lines) + '\n'
     for name in ('report', 'signal_report', 'calibration_report', 'warning_report'):
