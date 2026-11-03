@@ -74,6 +74,7 @@ secrets/
 # scripts/02 copies from; configs/paths.json names where this machine keeps its
 # weights and data, and committing it would bake one lab's layout into the repo.
 /configs/paths.json
+/configs/fast3_hosts.json
 
 # Editor / OS
 .idea/

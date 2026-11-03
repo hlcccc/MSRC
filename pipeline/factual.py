@@ -19,7 +19,8 @@ sys.path.insert(0, str(BASE))
 SIGNALS = ['self_consistency','resample_consistency','typed_verification',
            'cross_model_agreement','grounding_check','object_support',
            'sequence_confidence','output_entropy']
-MODELS = {name: model_paths()[name] for name in ('llava', 'qwen', 'internvl')}
+MODELS = {name: path for name, path in model_paths().items()
+          if name in ('llava', 'qwen', 'internvl')}
 DONORS = {'llava':'qwen','qwen':'llava','internvl':'qwen'}
 INPUTS = data_paths()['factual']
 

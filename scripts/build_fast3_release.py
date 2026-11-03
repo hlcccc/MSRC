@@ -1,0 +1,138 @@
+"""Package a committed fast3 candidate, with CPU evidence and exact archive QA."""
+import argparse
+import hashlib
+import importlib.metadata
+import json
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+import zipfile
+
+from build_fast3_docs import build, ROOT, TEMPLATE
+
+
+BRANCH = 'codex/frozen-fast-3x5090-20261103'
+
+
+def git(*args, cwd=ROOT):
+    return subprocess.check_output(['git', *args], cwd=cwd).decode('utf-8').strip()
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def save(path, value):
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + '\n',
+        encoding='utf-8', newline='\n')
+
+
+def junit(path):
+    root = ET.parse(path).getroot()
+    suites = list(root.iter('testsuite'))
+    result = {key: sum(int(s.get(key, '0')) for s in suites)
+        for key in ('tests', 'failures', 'errors', 'skipped')}
+    result['passed'] = result['tests'] - sum(result[k] for k in ('failures', 'errors', 'skipped'))
+    result['seconds'] = sum(float(s.get('time', '0')) for s in suites)
+    result['skip_reasons'] = sorted({v.get('message', '') for v in root.iter('skipped')})
+    if result['failures'] or result['errors'] or not result['passed']:
+        raise ValueError('CPU regression evidence is not passing: ' + str(path))
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--tests', type=Path, required=True)
+    parser.add_argument('--contract-tests', type=Path, required=True)
+    parser.add_argument('--fresh-clone', type=Path, required=True)
+    parser.add_argument('--environment-evidence', type=Path, required=True)
+    args = parser.parse_args()
+    commit = git('rev-parse', 'HEAD')
+    if git('branch', '--show-current') != BRANCH or git('status', '--porcelain'):
+        raise ValueError('package only the clean committed release branch')
+    if git('rev-parse', 'HEAD', cwd=args.fresh_clone) != commit:
+        raise ValueError('fresh remote clone does not match the release commit')
+    if git('ls-remote', 'origin', 'refs/heads/' + BRANCH).split()[0] != commit:
+        raise ValueError('GitHub remote branch is not the release commit')
+    full, contract = junit(args.tests), junit(args.contract_tests)
+    out = args.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    if not (out / 'env_patch/SHA256SUMS.txt').is_file() or not list((out / 'env_patch/wheels').glob('*.whl')):
+        raise ValueError('required environment supplement has not been delivered')
+    shutil.copyfile(args.environment_evidence, out / 'environment_patch_evidence.json')
+    qa = build(ROOT / 'docs/FAST3_FLOW.md', out / '测试流程_三张5090_无需现场训练.docx', TEMPLATE)
+    for source, name in (
+        (ROOT / 'docs/FAST3_FLOW.md', '测试流程_三张5090_无需现场训练.md'),
+        (ROOT / 'docs/FAST3_AUDIT.md', '逐步审计.md'),
+        (ROOT / 'docs/FAST3_DELIVERY.md', '交付说明.md'),
+        (ROOT / 'resources/FAST3_ASSET_SOURCES.json', 'FAST3_ASSET_SOURCES.json'),
+        (ROOT / 'configs/local-models.fast3.json', 'local-models.fast3.json'),
+        (args.tests, 'cpu_full_regression.xml'),
+        (args.contract_tests, 'cpu_fast3_contract_tests.xml'),
+    ):
+        shutil.copyfile(source, out / name)
+    save(out / 'document_qa.json', qa)
+    archive = out / 'MSRC-fast3-code-20261103.zip'
+    subprocess.run(['git', 'archive', '--format=zip', '--prefix=MSRC/',
+        '--output=' + str(archive), commit], cwd=ROOT, check=True)
+    expected = set(git('ls-tree', '-r', '--name-only', commit).splitlines())
+    found = set()
+    with zipfile.ZipFile(archive) as bundle:
+        if bundle.testzip() is not None:
+            raise ValueError('archive CRC failure')
+        for item in bundle.infolist():
+            if item.is_dir():
+                continue
+            if not item.filename.startswith('MSRC/'):
+                raise ValueError('archive root is not MSRC/')
+            relative = item.filename[len('MSRC/'):]
+            if relative in found or '..' in Path(relative).parts:
+                raise ValueError('unsafe archive member')
+            found.add(relative)
+            if bundle.read(item) != (args.fresh_clone / relative).read_bytes():
+                raise ValueError('ZIP differs from fresh GitHub checkout: ' + relative)
+    if found != expected:
+        raise ValueError('archive file inventory differs from commit')
+    save(out / 'source_archive_verification.json', dict(
+        complete=True, commit=commit, remote_readback_commit=commit,
+        zip_sha256=sha(archive), files_checked=len(found), all_member_bytes_equal_fresh_remote_clone=True,
+        archive_crc_ok=True, archive_root='MSRC/', no_untracked_files_included=True,
+        not_a_gpu_execution_result=True))
+    versions = {name: importlib.metadata.version(name) for name in ('pytest', 'torch', 'numpy', 'python-docx')}
+    save(out / 'RELEASE.json', dict(
+        format='msrc-fast3-delivery-v1', status='CANDIDATE_RELEASE_NOT_THREE_GPU_ACCEPTANCE',
+        branch=BRANCH, commit=commit, github='https://github.com/hlcccc/MSRC/tree/' + commit,
+        code_zip=archive.name, code_zip_sha256=sha(archive),
+        scope=dict(factual_models=['internvl'], pope_test=4500, textvqa_test=2496,
+            qwen_role='fresh auxiliary donor only', safety_requests=3360, safety_arms=5,
+            safety_logical_reviews=16800, original_six_cell_acceptance=False),
+        onsite_training=False, fitted_state='supplied, unchanged; pretrained offline, not newly fitted onsite',
+        test_selection=False, physical_three_gpu_validation_completed=False,
+        final_metric_pass_not_yet_measured=True, no_five_hour_guarantee=True,
+        runtime_estimate_hours=[3.5, 5.0], estimate_only=True,
+        estimate_requires='three exclusive RTX 5090 nodes, assets/environment ready, all development gates pass',
+        cpu_evidence=dict(platform=platform.platform(), python=sys.version, versions=versions,
+            full_regression=full, fast3_contract_and_synthetic_transport=contract,
+            synthetic_transport_is_not_gpu_model_quality_evidence=True),
+        document_qa=qa,
+        pending=['physical three-5090 full run and final thresholds', 'fresh Linux offline install',
+            'native Word pagination render', 'DSH upload/readback until separate verification receipt'],
+        large_assets='separate reused-materials share; not contained in code ZIP',
+        environment_supplement='env_patch/wheels; evidence in environment_patch_evidence.json; fresh GPU install pending',
+        old_single_gpu_results_are_planning_reference_not_this_release_results=True))
+    save(out / 'READY.json', dict(ready_for_upload=True, commit=commit,
+        delivery_only=True, scientific_acceptance_completed=False,
+        destination='/MSRC_fast_3x5090_20261103'))
+    checksums = ''.join(sha(p) + '  ' + p.relative_to(out).as_posix() + '\n' for p in sorted(out.rglob('*'))
+        if p.is_file() and p != out / 'SHA256SUMS.txt')
+    (out / 'SHA256SUMS.txt').write_text(checksums, encoding='utf-8', newline='\n')
+    print(json.dumps(dict(ready=True, commit=commit, files=len(checksums.splitlines()) + 1,
+        checksum_manifest_sha256=sha(out / 'SHA256SUMS.txt'), output=str(out)), ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    main()

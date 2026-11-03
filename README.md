@@ -1,5 +1,12 @@
 # MSRC — multi-signal risk calibration for multimodal generation
 
+**Three-5090 supplied-state candidate:** use [the eight-step fast3 procedure](docs/FAST3_FLOW.md)
+and [its step-by-step audit](docs/FAST3_AUDIT.md) for the no-onsite-training,
+InternVL-only factual scope on three exclusive RTX 5090 nodes. This is a
+development-gated candidate, not a completed three-GPU acceptance claim or a
+five-hour guarantee. The original six-cell workflow below is a different scope.
+The fast3 material catalog supersedes the older folder-completeness claim below.
+
 **Current multi-layer delivery: offline netdisk package `MSRC_offline_20261030`.**
 One folder carries the code, the prepared data with fixed train/test partitions, the
 project-fitted parameters, the four pinned base models, the offline dependency wheels and

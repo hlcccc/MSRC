@@ -1,0 +1,6 @@
+{
+  "workers": [
+    {"rank": 1, "host": "USER@SECOND_HOST", "port": 22, "gpu": "0"},
+    {"rank": 2, "host": "USER@THIRD_HOST", "port": 22, "gpu": "0"}
+  ]
+}

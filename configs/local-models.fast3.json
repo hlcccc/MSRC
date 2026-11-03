@@ -1,0 +1,6 @@
+{
+  "internvl": "InternVL3-8B-hf",
+  "qwen": "Qwen2.5-VL-7B-Instruct",
+  "generator": "Qwen2.5-VL-7B-Instruct",
+  "judge": "Qwen3Guard-Gen-8B"
+}
