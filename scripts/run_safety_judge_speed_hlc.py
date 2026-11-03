@@ -17,13 +17,25 @@ def save(path, value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', type=Path, required=True)
+    parser.add_argument('--source', type=Path)
+    parser.add_argument('--validation', action='store_true')
+    parser.add_argument('--experiment', type=Path)
+    parser.add_argument('--inputs', type=Path)
+    parser.add_argument('--legacy-cohort', type=Path)
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--run-id', required=True)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     allowed = Path('/mnt/data/HLC').resolve(strict=True)
-    for path in (root, args.source.resolve(strict=True), args.model.resolve(strict=True)):
+    if args.validation:
+        if any(value is None for value in (args.experiment, args.inputs, args.legacy_cohort)):
+            parser.error('validation requires experiment, inputs and legacy cohort')
+        read_paths = (args.experiment, args.inputs, args.legacy_cohort)
+    else:
+        if args.source is None:
+            parser.error('initial trial requires source')
+        read_paths = (args.source,)
+    for path in (root, args.model.resolve(strict=True), *(p.resolve(strict=True) for p in read_paths)):
         if not path.is_relative_to(allowed) or path.stat().st_uid != os.getuid():
             raise ValueError('HLC-owned root, source and model required')
     if re.fullmatch(r'[A-Za-z0-9_-]+', args.run_id) is None:
@@ -47,11 +59,17 @@ def main():
         path.mkdir(parents=True, exist_ok=True)
         env[name] = str(path)
     python = '/mnt/data/HLC/msrc_safety_no_fit_fresh_20261023/MSRC/.venv/bin/python'
-    command = [python, '-B', '-u', '-m', 'pipeline.safety_judge_speed',
-        '--source', str(args.source.resolve()), '--model', str(args.model.resolve()),
-        '--run-id', args.run_id, '--gpu', '0', '--cap-gib', '22']
+    cap = 28 if args.validation else 22
+    module = 'pipeline.safety_judge_validation' if args.validation else 'pipeline.safety_judge_speed'
+    command = [python, '-B', '-u', '-m', module, '--model', str(args.model.resolve()),
+        '--run-id', args.run_id, '--cap-gib', str(cap)]
+    if args.validation:
+        command += ['--experiment', str(args.experiment.resolve()), '--inputs', str(args.inputs.resolve()),
+                    '--legacy-cohort', str(args.legacy_cohort.resolve())]
+    else:
+        command += ['--source', str(args.source.resolve()), '--gpu', '0']
     state = dict(state='WAITING_FOR_GPU', run_id=args.run_id, pid=os.getpid(), gpu=0,
-        command=command, cap_gib=22, reserve_gib=8, shared_compute_duty=.5,
+        command=command, cap_gib=cap, reserve_gib=8, shared_compute_duty=.5,
         started_ns=time.time_ns(), formal_jobs_untouched=True, cloud_jobs_untouched=True,
         multi_gpu=False, full_acceptance=False)
     child = None
@@ -62,7 +80,7 @@ def main():
                 '--format=csv,noheader,nounits'], text=True).strip())
             state.update(checked_ns=time.time_ns(), free_mib=free)
             save(audit / 'status.json', state)
-            if free >= 31 * 1024 and shutil.disk_usage(root).free >= 2 * 1024**3:
+            if free >= (cap + 9) * 1024 and shutil.disk_usage(root).free >= 2 * 1024**3:
                 break
             if time.monotonic() >= deadline:
                 raise TimeoutError('one-hour bounded research resource wait expired')
@@ -72,7 +90,7 @@ def main():
                 stdout=log, stderr=subprocess.STDOUT)
             state.update(state='RUNNING', child_pid=child.pid)
             save(audit / 'status.json', state)
-            code = child.wait(timeout=30 * 60)
+            code = child.wait(timeout=(45 if args.validation else 30) * 60)
             state.update(state='COMPLETE' if code == 0 else 'FAILED', returncode=code)
     except BaseException as error:
         if child is not None and child.poll() is None:
